@@ -16,37 +16,44 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const WINDSOR_API_KEY = process.env.WINDSOR_API_KEY;
 const SKILLS_DIR = path.join(__dirname, "skills");
 
-// Accounts are loaded automatically from Windsor.ai on startup
-// No manual configuration needed — just connect an account in Windsor and it appears here
-let ACCOUNTS = {};
+// ── Account Management ────────────────────────────────────────
+// Accounts are loaded from the ACCOUNTS environment variable on Railway.
+// Format: ACCOUNTS=Barimelts:746-735-8073,KateAndWendy:123-456-7890
+// To add a new client: go to Railway → Variables → edit ACCOUNTS → add new entry → redeploy.
+// No code changes ever needed.
 
-async function loadAccountsFromWindsor() {
-  try {
-    const res = await fetch("https://connectors.windsor.ai/meta?api_key=" + WINDSOR_API_KEY);
-    const json = await res.json();
-    const googleAds = json.connectors && json.connectors.find(c => c.id === "google_ads");
-    if (googleAds && googleAds.accounts) {
-      googleAds.accounts.forEach(acc => {
-        const key = acc.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-        ACCOUNTS[key] = { id: acc.id, name: acc.name };
-        // Also store common abbreviations/partial names
-        const words = acc.name.toLowerCase().split(/\s+/);
-        words.forEach(word => {
-          if (word.length > 3) ACCOUNTS[word] = { id: acc.id, name: acc.name };
-        });
-      });
-      console.log("Loaded " + Object.keys(ACCOUNTS).length + " account keys from Windsor.ai:");
-      const uniqueNames = [...new Set(Object.values(ACCOUNTS).map(a => a.name))];
-      uniqueNames.forEach(n => console.log("  - " + n));
-    }
-  } catch (err) {
-    console.error("Failed to load accounts from Windsor.ai:", err.message);
-    // Fallback: hardcode known accounts as backup
-    ACCOUNTS = {
-      "barimelts": { id: "746-735-8073", name: "Barimelts" },
-    };
-    console.log("Using fallback account list.");
-  }
+function loadAccounts() {
+  const ACCOUNTS = {};
+  const raw = process.env.ACCOUNTS || "Barimelts:746-735-8073";
+
+  raw.split(",").forEach(entry => {
+    const parts = entry.trim().split(":");
+    if (parts.length < 2) return;
+    const name = parts[0].trim();
+    const id = parts.slice(1).join(":").trim();
+    if (!name || !id) return;
+
+    // Register under multiple key variations for flexible matching
+    const keys = [
+      name.toLowerCase().replace(/[^a-z0-9]/g, ""),
+      ...name.toLowerCase().split(/[\s&,_-]+/).filter(w => w.length > 2),
+    ];
+    const unique = [...new Set(keys)];
+    unique.forEach(key => { ACCOUNTS[key] = { id, name }; });
+  });
+
+  return ACCOUNTS;
+}
+
+const ACCOUNTS = loadAccounts();
+
+function getUniqueAccounts() {
+  const seen = new Set();
+  return Object.values(ACCOUNTS).filter(a => {
+    if (seen.has(a.id)) return false;
+    seen.add(a.id);
+    return true;
+  });
 }
 
 function detectAccount(question) {
@@ -54,29 +61,29 @@ function detectAccount(question) {
   for (const [key, account] of Object.entries(ACCOUNTS)) {
     if (q.includes(key)) return account;
   }
-  // If only one account exists, use it by default
-  const uniqueAccounts = [...new Map(Object.values(ACCOUNTS).map(a => [a.id, a])).values()];
-  if (uniqueAccounts.length === 1) return uniqueAccounts[0];
+  const unique = getUniqueAccounts();
+  if (unique.length === 1) return unique[0];
   return null;
 }
 
+// ── Skills ────────────────────────────────────────────────────
 const SKILLS = {
-  "google-ads-account-audit": ["account audit","audit my google ads","account health","what should i fix","account review","where to start","google ads diagnostic","taking over"],
+  "google-ads-account-audit": ["account audit","audit","account health","what should i fix","account review","where to start","google ads diagnostic","taking over","top issues","biggest problems"],
   "google-ads-ad-copy": ["ad copy","headline","rsa","write ads","improve my ads","description copy","cta copy","value proposition"],
   "google-ads-ad-extension-audit": ["extension audit","asset audit","missing extensions","extension coverage","sitelink audit","callout audit"],
   "google-ads-ad-extensions": ["ad extensions","sitelinks","callouts","structured snippets","call extension","lead form","image extension","ad assets"],
-  "google-ads-anomaly-detection": ["performance drop","cpa spike","impressions dropped","ctr dropped","conversions disappeared","spend increased","anomaly","diagnose","went wrong","monitoring"],
+  "google-ads-anomaly-detection": ["performance drop","cpa spike","impressions dropped","ctr dropped","conversions disappeared","spend increased","anomaly","diagnose","went wrong","monitoring","why did","what happened"],
   "google-ads-attribution": ["attribution","data-driven attribution","last click","assisted conversions","conversion window","multi-touch","which campaign is driving"],
   "google-ads-audiences": ["audience","remarketing","rlsa","customer match","lookalike","in-market","custom intent","retargeting"],
   "google-ads-audit-ecommerce": ["ecommerce audit","shopping audit","roas audit","product feed","pmax","cart abandonment"],
   "google-ads-audit-leadgen": ["lead gen audit","cpl audit","lead generation","b2b audit","lead quality","cost per lead"],
   "google-ads-bidding": ["bidding strategy","smart bidding","target cpa","target roas","maximize conversions","manual cpc","bid adjustment","tcpa","troas"],
-  "google-ads-budget-management": ["budget pacing","underspending","overspending","monthly budget","shared budget","budget allocation","limited by budget"],
+  "google-ads-budget-management": ["budget pacing","underspending","overspending","monthly budget","shared budget","budget allocation","limited by budget","wasting budget","wasted budget"],
   "google-ads-conversion-tracking": ["conversion tracking","google tag","gtm","tag manager","enhanced conversions","conversion action","tracking not firing","missing conversions"],
   "google-ads-experiments": ["experiment","a/b test","ad variation","split test","statistical significance","uplift test"],
   "google-ads-keyword-cannibalization": ["cannibalization","campaigns competing","duplicate keywords","keyword overlap","internal competition","campaign conflict"],
   "google-ads-keywords": ["keyword research","keyword strategy","match types","keyword planner","keyword audit","broad match","phrase match","exact match"],
-  "google-ads-negative-keywords": ["negative keywords","wasted spend","irrelevant traffic","negative keyword list","reduce wasted","irrelevant queries"],
+  "google-ads-negative-keywords": ["negative keywords","wasted spend","irrelevant traffic","negative keyword list","reduce wasted","irrelevant queries","negative keyword recommendations"],
   "google-ads-quality-score": ["quality score","qs","expected ctr","landing page experience","ad rank","low quality score","cpc too high"],
   "google-ads-scripts": ["script","automate","bulk changes","automation","auto pause","script alert","script report"],
   "google-ads-search-term-mining": ["search term report","search term analysis","search term mining","what are people searching","query analysis"],
@@ -100,13 +107,14 @@ function loadSkill(skillName) {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
 }
 
+// ── Windsor.ai Data ───────────────────────────────────────────
 async function fetchWindsorData(question, accountId) {
   const q = question.toLowerCase();
   let datePreset = "last_30d";
   if (q.includes("today") || q.includes("yesterday") || q.includes("last week") || q.includes("7 day")) datePreset = "last_7d";
   if (q.includes("this month")) datePreset = "this_monthT";
   if (q.includes("90 day") || q.includes("3 month")) datePreset = "last_90d";
-  const needsCampaigns = ["audit","campaign","performance","drop","spike","anomaly","budget","bidding","roas","cpa","wasted","diagnose"].some(t => q.includes(t));
+  const needsCampaigns = ["audit","campaign","performance","drop","spike","anomaly","budget","bidding","roas","cpa","wasted","diagnose","why","what happened"].some(t => q.includes(t));
   const fields = needsCampaigns ? "date,campaign,spend,roas,clicks,impressions,conversions,ctr,cpc" : "date,spend,roas,clicks,impressions,conversions";
   try {
     const url = "https://connectors.windsor.ai/google_ads?" + new URLSearchParams({
@@ -119,13 +127,13 @@ async function fetchWindsorData(question, accountId) {
     const json = await res.json();
     return json.data || [];
   } catch (err) {
-    console.error("Windsor error:", err.message);
+    console.error("Windsor data error:", err.message);
     return [];
   }
 }
 
 function formatData(data, accountName) {
-  if (!data.length) return "No data available.";
+  if (!data.length) return "No data available for this period.";
   const totals = data.reduce((acc, r) => ({
     spend: acc.spend + (r.spend || 0),
     clicks: acc.clicks + (r.clicks || 0),
@@ -173,6 +181,7 @@ function formatData(data, accountName) {
   return out;
 }
 
+// ── Claude API ────────────────────────────────────────────────
 async function askMia(question, skillName, data, account) {
   const skill = loadSkill(skillName);
   const dataContext = formatData(data, account.name);
@@ -182,10 +191,9 @@ async function askMia(question, skillName, data, account) {
     "LIVE ACCOUNT DATA:\n" + dataContext + "\n\n" +
     "RULES:\n" +
     "- Always reference actual numbers from the live data\n" +
-    "- Be specific and actionable — no generic advice\n" +
+    "- Be specific and actionable\n" +
     "- Flag anything concerning clearly\n" +
-    "- Keep responses concise and well formatted for Slack\n" +
-    "- Use *bold* for key points and bullet points for lists\n" +
+    "- Format responses nicely for Slack using *bold* and bullet points\n" +
     "- Max 600 words unless a full audit is requested";
 
   const res = await anthropic.messages.create({
@@ -197,14 +205,15 @@ async function askMia(question, skillName, data, account) {
   return res.content[0].text;
 }
 
+// ── Slack Event Handler ───────────────────────────────────────
 slack.event("app_mention", async ({ event, say }) => {
   const question = event.text.replace(/<@[A-Z0-9]+>/g, "").trim();
-  const uniqueAccounts = [...new Map(Object.values(ACCOUNTS).map(a => [a.id, a])).values()];
+  const unique = getUniqueAccounts();
 
   if (!question) {
-    const clientList = uniqueAccounts.map(a => "- " + a.name).join("\n");
+    const clientList = unique.map(a => "- " + a.name).join("\n");
     await say({
-      text: "Hi! I am *Mia* - your Google Ads AI.\n\nI can answer questions about these accounts:\n" + clientList + "\n\nExamples:\n- @mia audit barimelts\n- @mia why did barimelts CPA spike this week?\n- @mia which campaigns are wasting budget in barimelts?\n- @mia give me negative keyword recommendations for barimelts",
+      text: "Hi! I am *Mia* - your Google Ads AI for Webtopia.\n\nI have access to these accounts:\n" + clientList + "\n\nExamples:\n- @mia audit barimelts\n- @mia why did barimelts CPA spike this week?\n- @mia which campaigns are wasting budget in barimelts?\n- @mia give me negative keyword recommendations for barimelts\n- @mia share last 7 days performance for barimelts",
       thread_ts: event.ts,
     });
     return;
@@ -213,9 +222,9 @@ slack.event("app_mention", async ({ event, say }) => {
   const account = detectAccount(question);
 
   if (!account) {
-    const clientList = uniqueAccounts.map(a => a.name).join(", ");
+    const clientList = unique.map(a => a.name).join(", ");
     await say({
-      text: "Which account are you asking about? I currently have access to: " + clientList + "\n\nExample: @mia audit barimelts",
+      text: "Which account are you asking about? I have access to: *" + clientList + "*\n\nExample: @mia audit barimelts",
       thread_ts: event.ts,
     });
     return;
@@ -240,9 +249,12 @@ slack.event("app_mention", async ({ event, say }) => {
   }
 });
 
+// ── Start ─────────────────────────────────────────────────────
 (async () => {
-  console.log("Starting Mia v3...");
-  await loadAccountsFromWindsor();
+  console.log("Starting Mia...");
+  const unique = getUniqueAccounts();
+  console.log("Loaded " + unique.length + " account(s):");
+  unique.forEach(a => console.log("  - " + a.name + " (ID: " + a.id + ")"));
   await slack.start();
   console.log("Mia is live! Listening for @Mia mentions in Slack...");
 })();
