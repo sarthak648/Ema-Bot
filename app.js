@@ -241,7 +241,7 @@ slack.event("app_mention", async ({ event, say }) => {
 });
 
 (async () => {
-  console.log("Loading accounts from Windsor.ai...");
+  console.log("Starting Mia v3...");
   await loadAccountsFromWindsor();
   await slack.start();
   console.log("Mia is live! Listening for @Mia mentions in Slack...");
