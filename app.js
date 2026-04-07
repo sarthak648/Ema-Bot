@@ -421,7 +421,7 @@ function formatCrawlResults(pages) {
 }
 
 // ── Intent Detection ─────────────────────────────────────────
-// Detect if the question needs web search or URL scraping
+// Uses LLM to understand what the question needs — no keyword matching
 
 function detectUrls(text) {
     const urlRegex = /https?:\/\/[^\s<>]+/g;
@@ -429,13 +429,46 @@ function detectUrls(text) {
 }
 
 async function detectIntent(question) {
-    const q = question.toLowerCase();
     const urls = detectUrls(question);
 
+    try {
+        const res = await anthropic.messages.create({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 150,
+            messages: [{ role: "user", content: `Analyze this question and determine what capabilities are needed to answer it well. Return ONLY a JSON object with these boolean fields:
+
+- needsData: Does this need live ad account performance data (spend, ROAS, CPA, clicks, conversions, campaign metrics)?
+- needsWebSearch: Would a Google search help answer this? (competitor research, industry trends, market info, benchmarks, finding information)
+- needsScrape: Does this involve checking/reading a website or landing page? (also true if URLs are present)
+- needsAdCopy: Is this about writing or creating ad copy, headlines, or descriptions?
+
+Question: "${question}"
+URLs found: ${urls.length > 0 ? urls.join(", ") : "none"}
+
+Return ONLY valid JSON, nothing else.` }],
+        });
+        const text = res.content[0].text.trim();
+        const jsonMatch = text.match(/\{.*\}/s);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                needsData: parsed.needsData || false,
+                needsWebSearch: parsed.needsWebSearch || false,
+                needsScrape: parsed.needsScrape || urls.length > 0,
+                urls,
+                needsAdCopy: parsed.needsAdCopy || false,
+            };
+        }
+    } catch (e) {
+        console.error("Intent detection error:", e.message);
+    }
+
+    // Fallback to basic detection if LLM fails
+    const q = question.toLowerCase();
     return {
         needsData: /data|performance|spend|roas|cpa|cpc|budget|metrics|report|audit|how.*(doing|going)|stats|numbers|analytics|conversions|clicks|impressions|revenue/.test(q),
-        needsWebSearch: /search|google|competitor|research|trending|market|industry|benchmark|what.*(others|competitors)/.test(q),
-        needsScrape: urls.length > 0 || /website|landing page|url|site|page|scrape|check.*(site|page)|look at/.test(q),
+        needsWebSearch: /search|competitor|research|trending|market|industry|benchmark|landing|website|browse/.test(q),
+        needsScrape: urls.length > 0 || /website|landing page|url|site|page|check.*(site|page)|look at|browse/.test(q),
         urls,
         needsAdCopy: /ad\s*copy|headline|description|write.*ad|create.*ad|rsa|copy.*for|ads?\s+for/.test(q),
     };
@@ -555,6 +588,14 @@ ${clientKnowledge ? "CLIENT KNOWLEDGE:\n" + clientKnowledge + "\n\n" : ""}
 ${dataContext !== "No data available for this period." ? "LIVE ACCOUNT DATA:\n" + dataContext + "\n\n" : ""}
 
 ${webContext ? "WEB RESEARCH:\n" + webContext + "\n\n" : ""}
+
+YOUR CAPABILITIES:
+- You can pull live ad performance data from Windsor.ai (if data is provided below, use it)
+- You can browse websites and read multiple pages — if web content is provided below, you already did this
+- You can search the web via Google — if search results are provided below, you already did this
+- You NEVER say "I don't have access to tools" or "I need tools enabled" — if data/web content isn't below, it just wasn't needed for this question
+- You NEVER say "let me check" or "I'd need to look at" — if you have the info below, you ALREADY looked at it. Just share what you found.
+- You NEVER reference your own capabilities or limitations — just answer naturally like a person would
 
 RULES:
 - Reference actual numbers from live data when available — be specific
