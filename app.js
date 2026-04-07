@@ -662,12 +662,29 @@ async function processQuestion(question, account, userId, channelId, event, say)
             intent.needsWebSearch ? searchWeb(question) : Promise.resolve([]),
         ]);
 
-        // Crawl websites if URLs found — explores multiple pages for full context
+        // Crawl websites — use URLs from question, or look up client website if scraping needed
         let webContext = "";
-        if (intent.urls.length > 0) {
+        let urlsToCrawl = intent.urls.filter(u => {
+            try { new URL(u); return true; } catch { return false; }
+        });
+
+        // If scraping is needed but no URLs given, try to find client website from knowledge
+        if (intent.needsScrape && urlsToCrawl.length === 0 && clientKnowledge) {
+            const websiteMatch = clientKnowledge.match(/(?:website|url|site|domain)[:\s]+(?:https?:\/\/)?([^\s,\n]+\.[a-z]{2,})/i);
+            if (websiteMatch) {
+                const clientUrl = websiteMatch[1].startsWith("http") ? websiteMatch[1] : "https://" + websiteMatch[1];
+                try { new URL(clientUrl); urlsToCrawl.push(clientUrl); } catch { /* invalid */ }
+            }
+        }
+
+        if (urlsToCrawl.length > 0) {
             await say({ text: "browsing the site to understand it better — checking multiple pages...", thread_ts: event.ts });
-            const crawlResults = await Promise.all(intent.urls.map(url => crawlWebsite(url)));
-            webContext = crawlResults.map(pages => formatCrawlResults(pages)).join("\n\n");
+            try {
+                const crawlResults = await Promise.all(urlsToCrawl.map(url => crawlWebsite(url)));
+                webContext = crawlResults.map(pages => formatCrawlResults(pages)).join("\n\n");
+            } catch (crawlErr) {
+                console.error("Crawl failed:", crawlErr.message);
+            }
         }
 
         // Add web search results to context
@@ -703,9 +720,16 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
         const webResults = intent.needsWebSearch ? await searchWeb(question) : [];
 
         let webContext = "";
-        if (intent.urls.length > 0) {
-            const crawlResults = await Promise.all(intent.urls.map(url => crawlWebsite(url)));
-            webContext = crawlResults.map(pages => formatCrawlResults(pages)).join("\n\n");
+        const validUrls = intent.urls.filter(u => {
+            try { new URL(u); return true; } catch { return false; }
+        });
+        if (validUrls.length > 0) {
+            try {
+                const crawlResults = await Promise.all(validUrls.map(url => crawlWebsite(url)));
+                webContext = crawlResults.map(pages => formatCrawlResults(pages)).join("\n\n");
+            } catch (crawlErr) {
+                console.error("Crawl failed:", crawlErr.message);
+            }
         }
         if (webResults.length > 0) {
             webContext += (webContext ? "\n\n---\n\n" : "") + "SEARCH RESULTS:\n" +
