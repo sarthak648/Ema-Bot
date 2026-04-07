@@ -103,6 +103,19 @@ async function detectClientFromChannel(channelId) {
 }
 
 // ── Skill Discovery ─────────────────────────────────────────
+// Structure:
+//   skills/channel/   ← platform/strategy skills (google-ads-*.md, meta-ads-*.md, etc.)
+//   skills/clients/   ← client knowledge files (barimelts.md, clientb.md, etc.)
+//
+// How it works:
+// 1. Channel skills = the expertise (how to do things)
+// 2. Client knowledge = the context (who we're doing it for)
+// 3. LLM router picks the right channel skills based on the question
+// 4. Client knowledge is ALWAYS loaded based on which client is detected
+//
+// To add a new client: drop a .md file in skills/clients/ named after the client
+// To add new skills: drop a .md file in skills/channel/ (e.g. meta-ads-campaigns.md)
+
 function discoverSkills(directory) {
     if (!fs.existsSync(directory)) return [];
     return fs.readdirSync(directory)
@@ -115,60 +128,91 @@ function discoverSkills(directory) {
         });
 }
 
+// Channel skills = expertise skills (google ads, meta ads, etc.)
+function getChannelSkills() {
+    return discoverSkills(CHANNEL_SKILLS_DIR);
+}
+
+// Client skills = client knowledge files
+function getClientSkills() {
+    return discoverSkills(CLIENT_SKILLS_DIR);
+}
+
+// All skills combined (for logging/info)
 function getAllSkills() {
-    const channelSkills = discoverSkills(CHANNEL_SKILLS_DIR);
-    const legacySkills = discoverSkills(LEGACY_SKILLS_DIR);
-    const clientSkills = discoverSkills(CLIENT_SKILLS_DIR);
-    return [...(channelSkills.length > 0 ? channelSkills : legacySkills), ...clientSkills];
+    return [...getChannelSkills(), ...getClientSkills()];
+}
+
+// Available clients = auto-discovered from skills/clients/ folder
+function getAvailableClients() {
+    if (!fs.existsSync(CLIENT_SKILLS_DIR)) return [];
+    return fs.readdirSync(CLIENT_SKILLS_DIR)
+        .filter(f => f.endsWith(".md") && f !== "README.md")
+        .map(f => f.replace(".md", ""));
 }
 
 function loadSkillContent(skillName) {
+    // Check channel skills first
     const channelPath = path.join(CHANNEL_SKILLS_DIR, skillName + ".md");
     if (fs.existsSync(channelPath)) return fs.readFileSync(channelPath, "utf-8");
 
+    // Then client skills
     const clientPath = path.join(CLIENT_SKILLS_DIR, skillName + ".md");
     if (fs.existsSync(clientPath)) return fs.readFileSync(clientPath, "utf-8");
-
-    const legacyPath = path.join(LEGACY_SKILLS_DIR, skillName + ".md");
-    if (fs.existsSync(legacyPath)) return fs.readFileSync(legacyPath, "utf-8");
 
     return "";
 }
 
 function loadClientKnowledge(clientName) {
-    const clientFile = path.join(CLIENT_SKILLS_DIR, clientName.toLowerCase().replace(/[^a-z0-9]/g, "") + ".md");
+    if (!clientName) return "";
+
+    // Try exact match in clients folder
+    const cleanName = clientName.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const clientFile = path.join(CLIENT_SKILLS_DIR, cleanName + ".md");
     if (fs.existsSync(clientFile)) return fs.readFileSync(clientFile, "utf-8");
 
-    const legacyFile = path.join(__dirname, clientName.toLowerCase().replace(/[^a-z0-9]/g, "") + "-knowledge.md");
+    // Try fuzzy match — client file name contains or is contained in the client name
+    const availableClients = getAvailableClients();
+    for (const c of availableClients) {
+        if (cleanName.includes(c) || c.includes(cleanName)) {
+            const fuzzyPath = path.join(CLIENT_SKILLS_DIR, c + ".md");
+            return fs.readFileSync(fuzzyPath, "utf-8");
+        }
+    }
+
+    // Legacy fallback: root-level file like barimelts-knowledge.md
+    const legacyFile = path.join(__dirname, cleanName + "-knowledge.md");
     if (fs.existsSync(legacyFile)) return fs.readFileSync(legacyFile, "utf-8");
 
     return "";
 }
 
 // ── LLM-Based Skill Router ───────────────────────────────────
-// Claude picks skills based on understanding the question — no keywords needed
+// Only routes to CHANNEL skills (expertise/strategy)
+// Client knowledge is loaded separately — always included for the detected client
 
 async function routeToSkills(question, clientName) {
-    const allSkills = getAllSkills();
-    if (allSkills.length === 0) return ["general"];
+    const channelSkills = getChannelSkills();
+    if (channelSkills.length === 0) return ["general"];
 
-    // Build rich skill descriptions for the LLM
-    const skillList = allSkills.map(s => {
+    // Build rich skill descriptions for the LLM — only channel skills
+    const skillList = channelSkills.map(s => {
         const content = loadSkillContent(s.name);
-        // Extract the description from frontmatter or first meaningful line
         const descMatch = content.match(/description:\s*"?([^"]+)"?/);
         const desc = descMatch ? descMatch[1].substring(0, 300) : s.description;
         return `- ${s.name}: ${desc}`;
     }).join("\n");
 
-    const routerPrompt = `You are an intelligent skill router. Your job is to understand the user's intent and match it to the most relevant skills.
+    const routerPrompt = `You are an intelligent skill router. Your job is to understand the user's intent and match it to the most relevant expertise skills.
 
 Think about what the user actually needs — don't just match keywords. Consider:
 - What problem are they trying to solve?
 - What kind of expertise would help them?
 - Would combining multiple skills give a better answer?
 
-AVAILABLE SKILLS:
+Note: Client-specific knowledge is loaded separately. Only pick skills that provide the right EXPERTISE for the question.
+
+AVAILABLE EXPERTISE SKILLS:
 ${skillList}
 
 CLIENT CONTEXT: ${clientName || "unknown"}
@@ -751,15 +795,25 @@ slack.event("message", async ({ event, say }) => {
 (async () => {
     try {
         console.log("Starting Mia v3...");
+        console.log("");
+
+        // Log accounts
         const unique = getUniqueAccounts();
-        console.log("Loaded " + unique.length + " account(s):");
+        console.log("📋 Accounts (" + unique.length + "):");
         unique.forEach(a => console.log("  - " + a.name + " (ID: " + a.id + ")"));
 
-        const allSkills = getAllSkills();
-        console.log("Total skills loaded: " + allSkills.length);
-        allSkills.forEach(s => console.log("  - " + s.name));
+        // Log channel skills (expertise)
+        const channelSkills = getChannelSkills();
+        console.log("\n🔧 Channel Skills — expertise (" + channelSkills.length + "):");
+        channelSkills.forEach(s => console.log("  - " + s.name));
 
-        console.log("Web search: " + (GOOGLE_SEARCH_API_KEY ? "enabled" : "not configured"));
+        // Log client knowledge files
+        const clients = getAvailableClients();
+        console.log("\n👥 Client Knowledge Files (" + clients.length + "):");
+        clients.forEach(c => console.log("  - " + c));
+
+        console.log("\n🔍 Web search: " + (GOOGLE_SEARCH_API_KEY ? "enabled" : "not configured"));
+        console.log("");
 
         await slack.start();
         console.log("Mia v3 is live! Listening for mentions and DMs...");
