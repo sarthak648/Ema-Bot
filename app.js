@@ -5,6 +5,7 @@ const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...ar
 const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
+const XLSX = require("xlsx");
 
 // ── Core Setup ────────────────────────────────────────────────
 const slack = new App({
@@ -593,9 +594,14 @@ YOUR CAPABILITIES:
 - You can pull live ad performance data from Windsor.ai (if data is provided below, use it)
 - You can browse websites and read multiple pages — if web content is provided below, you already did this
 - You can search the web via Google — if search results are provided below, you already did this
-- You NEVER say "I don't have access to tools" or "I need tools enabled" — if data/web content isn't below, it just wasn't needed for this question
-- You NEVER say "let me check" or "I'd need to look at" — if you have the info below, you ALREADY looked at it. Just share what you found.
-- You NEVER reference your own capabilities or limitations — just answer naturally like a person would
+- You can read CSV, Excel, and Google Sheets files — if file content is provided below, use it directly
+
+WHEN SOMETHING IS MISSING — be direct, say less:
+- If a file wasn't attached or couldn't be read: say exactly this and nothing more — e.g. "can't see the file, can you re-upload it?"
+- If you need something specific: ask for that one thing only — don't explain what you'd do once you get it
+- If you genuinely cannot do something: say "I can't do that" — not a paragraph about why or what you could do instead
+- NEVER list out what you would analyse, find, or deliver before you've actually done it
+- NEVER explain your capabilities unprompted — just do the work or ask for what's missing
 
 RULES:
 - Reference actual numbers from live data when available — be specific
@@ -608,6 +614,74 @@ RULES:
 - Keep responses under 500 words unless a full audit or deep analysis is specifically requested
 - End with clear next steps or recommendations when relevant
 - Think before answering: does this actually solve their problem?`;
+}
+
+// ── File Reading ─────────────────────────────────────────────
+// Handles CSV, Excel (.xlsx/.xls) uploaded to Slack, and Google Sheets URLs.
+
+async function readSlackFile(fileObj) {
+    try {
+        const url = fileObj.url_private_download || fileObj.url_private;
+        if (!url) return null;
+
+        const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+        });
+        if (!res.ok) return null;
+
+        const mimetype = (fileObj.mimetype || "").toLowerCase();
+        const filename = fileObj.name || "file";
+
+        // CSV or plain text
+        if (mimetype.includes("csv") || filename.endsWith(".csv")) {
+            const text = await res.text();
+            return formatFileContent(text, filename);
+        }
+
+        // Excel (.xlsx / .xls)
+        if (mimetype.includes("spreadsheetml") || mimetype.includes("ms-excel") ||
+            filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
+            const buffer = await res.arrayBuffer();
+            const workbook = XLSX.read(buffer, { type: "array" });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const csv = XLSX.utils.sheet_to_csv(sheet);
+            return formatFileContent(csv, filename);
+        }
+
+        // Plain text fallback
+        if (mimetype.includes("text")) {
+            const text = await res.text();
+            return `FILE: ${filename}\n${text.substring(0, 15000)}`;
+        }
+
+        return null;
+    } catch (err) {
+        console.error("File read error:", err.message);
+        return null;
+    }
+}
+
+async function readGoogleSheet(url) {
+    try {
+        const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (!match) return null;
+        const sheetId = match[1];
+        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+        const res = await fetch(csvUrl);
+        if (!res.ok) return null;
+        const text = await res.text();
+        return formatFileContent(text, "Google Sheet");
+    } catch (err) {
+        console.error("Google Sheet read error:", err.message);
+        return null;
+    }
+}
+
+function formatFileContent(csvText, filename) {
+    // Limit to first 300 rows to avoid token overload
+    const rows = csvText.split("\n").filter(r => r.trim()).slice(0, 300);
+    return `FILE: ${filename}\n${rows.join("\n")}`;
 }
 
 // ── Thread History ────────────────────────────────────────────
@@ -713,11 +787,29 @@ async function processQuestion(question, account, userId, channelId, event, say)
             intent.needsWebSearch ? searchWeb(question) : Promise.resolve([]),
         ]);
 
+        // Read any attached files (CSV, Excel)
+        let fileContext = "";
+        const slackFiles = event.files || [];
+        if (slackFiles.length > 0) {
+            const fileContents = await Promise.all(slackFiles.map(f => readSlackFile(f)));
+            const parsed = fileContents.filter(Boolean);
+            if (parsed.length > 0) fileContext = parsed.join("\n\n");
+        }
+
         // Crawl websites — use URLs from question, or look up client website if scraping needed
+        // Skip Google Sheets URLs here — those are handled as files below
         let webContext = "";
         let urlsToCrawl = intent.urls.filter(u => {
-            try { new URL(u); return true; } catch { return false; }
+            try { const parsed = new URL(u); return !parsed.hostname.includes("docs.google.com"); } catch { return false; }
         });
+
+        // Read Google Sheets URLs if present
+        const sheetUrls = intent.urls.filter(u => u.includes("docs.google.com/spreadsheets"));
+        if (sheetUrls.length > 0) {
+            const sheetContents = await Promise.all(sheetUrls.map(u => readGoogleSheet(u)));
+            const parsed = sheetContents.filter(Boolean);
+            if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
+        }
 
         // If scraping is needed but no URLs given, try to find client website from knowledge
         if (intent.needsScrape && urlsToCrawl.length === 0 && clientKnowledge) {
@@ -743,6 +835,9 @@ async function processQuestion(question, account, userId, channelId, event, say)
             webContext += (webContext ? "\n\n---\n\n" : "") + "SEARCH RESULTS:\n" +
                 webResults.map(r => `- ${r.title}: ${r.snippet} (${r.link})`).join("\n");
         }
+
+        // Merge file context into web context
+        if (fileContext) webContext = fileContext + (webContext ? "\n\n---\n\n" + webContext : "");
 
         // Fetch thread history so Mia knows what's already been discussed
         const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
@@ -773,9 +868,26 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
         const skillNames = await routeToSkills(question, null);
         const webResults = intent.needsWebSearch ? await searchWeb(question) : [];
 
+        // Read any attached files (CSV, Excel)
+        let fileContext = "";
+        const slackFiles = event.files || [];
+        if (slackFiles.length > 0) {
+            const fileContents = await Promise.all(slackFiles.map(f => readSlackFile(f)));
+            const parsed = fileContents.filter(Boolean);
+            if (parsed.length > 0) fileContext = parsed.join("\n\n");
+        }
+
+        // Read Google Sheets URLs if present
+        const sheetUrls = intent.urls.filter(u => u.includes("docs.google.com/spreadsheets"));
+        if (sheetUrls.length > 0) {
+            const sheetContents = await Promise.all(sheetUrls.map(u => readGoogleSheet(u)));
+            const parsed = sheetContents.filter(Boolean);
+            if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
+        }
+
         let webContext = "";
         const validUrls = intent.urls.filter(u => {
-            try { new URL(u); return true; } catch { return false; }
+            try { const p = new URL(u); return !p.hostname.includes("docs.google.com"); } catch { return false; }
         });
         if (validUrls.length > 0) {
             try {
@@ -789,6 +901,9 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
             webContext += (webContext ? "\n\n---\n\n" : "") + "SEARCH RESULTS:\n" +
                 webResults.map(r => `- ${r.title}: ${r.snippet} (${r.link})`).join("\n");
         }
+
+        // Merge file context in
+        if (fileContext) webContext = fileContext + (webContext ? "\n\n---\n\n" + webContext : "");
 
         const skillContents = skillNames
             .filter(s => s !== "general")
@@ -836,11 +951,15 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
 
 slack.event("app_mention", async ({ event, say }) => {
     const question = event.text.replace(/<@[A-Z0-9]+>/g, "").trim();
+    const hasFiles = (event.files || []).length > 0;
     const userId = event.user;
     const channelId = event.channel;
 
-    // Empty mention — introduce herself
-    if (!question) {
+    // If mention has a file but no text, treat it as "analyse this"
+    const effectiveQuestion = question || (hasFiles ? "please analyse this file" : "");
+
+    // Empty mention with no files — introduce herself
+    if (!effectiveQuestion) {
         const unique = getUniqueAccounts();
         const clientList = unique.map(a => "- " + a.name).join("\n");
         const skills = getAllSkills();
@@ -852,7 +971,7 @@ slack.event("app_mention", async ({ event, say }) => {
     }
 
     // Detect account
-    const account = detectAccount(question);
+    const account = detectAccount(effectiveQuestion);
 
     if (!account) {
         // Try channel context
@@ -860,16 +979,16 @@ slack.event("app_mention", async ({ event, say }) => {
         if (channelClient) {
             const channelAccount = detectAccount(channelClient);
             if (channelAccount) {
-                await processQuestion(question, channelAccount, userId, channelId, event, say);
+                await processQuestion(effectiveQuestion, channelAccount, userId, channelId, event, say);
                 return;
             }
         }
 
         // Check if this is a general question that doesn't need account data
-        const intent = await detectIntent(question);
+        const intent = await detectIntent(effectiveQuestion);
         if (!intent.needsData) {
             // General question — answer without account data
-            await processGeneralQuestion(question, userId, channelId, event, say);
+            await processGeneralQuestion(effectiveQuestion, userId, channelId, event, say);
             return;
         }
 
@@ -882,7 +1001,7 @@ slack.event("app_mention", async ({ event, say }) => {
         return;
     }
 
-    await processQuestion(question, account, userId, channelId, event, say);
+    await processQuestion(effectiveQuestion, account, userId, channelId, event, say);
 });
 
 // ── Slack Event: Direct Messages ─────────────────────────────
@@ -892,19 +1011,25 @@ slack.event("message", async ({ event, say }) => {
     if (event.channel_type !== "im" || event.bot_id || event.subtype) return;
 
     const question = (event.text || "").trim();
-    if (!question) return;
+    const hasFiles = (event.files || []).length > 0;
+
+    // Skip if no text and no files
+    if (!question && !hasFiles) return;
+
+    // If someone sends only a file with no text, treat it as "analyse this"
+    const effectiveQuestion = question || "please analyse this file";
 
     const userId = event.user;
     const channelId = event.channel;
 
     // Detect account from question
-    const account = detectAccount(question);
+    const account = detectAccount(effectiveQuestion);
 
     if (account) {
-        await processQuestion(question, account, userId, channelId, event, say);
+        await processQuestion(effectiveQuestion, account, userId, channelId, event, say);
     } else {
         // Check if they need account data or it's a general question
-        const intent = await detectIntent(question);
+        const intent = await detectIntent(effectiveQuestion);
         if (intent.needsData) {
             const unique = getUniqueAccounts();
             const clientList = unique.map(a => a.name).join(", ");
@@ -913,7 +1038,7 @@ slack.event("message", async ({ event, say }) => {
                 thread_ts: event.ts,
             });
         } else {
-            await processGeneralQuestion(question, userId, channelId, event, say);
+            await processGeneralQuestion(effectiveQuestion, userId, channelId, event, say);
         }
     }
 });
