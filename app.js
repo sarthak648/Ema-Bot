@@ -610,9 +610,55 @@ RULES:
 - Think before answering: does this actually solve their problem?`;
 }
 
+// ── Thread History ────────────────────────────────────────────
+// Fetches previous messages from a Slack thread so Mia has full conversation context.
+// Only runs when the current message is a reply inside an existing thread.
+
+async function fetchThreadHistory(channelId, threadTs, currentTs) {
+    // No thread context if this is the root message
+    if (!threadTs || threadTs === currentTs) return [];
+
+    try {
+        const result = await slack.client.conversations.replies({
+            channel: channelId,
+            ts: threadTs,
+            limit: 20,
+        });
+
+        const messages = (result.messages || [])
+            .filter(msg => msg.ts !== currentTs); // exclude current message — that's already the question
+
+        const history = [];
+        for (const msg of messages) {
+            const role = msg.bot_id ? "assistant" : "user";
+            const text = (msg.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
+            if (!text) continue;
+            history.push({ role, content: text });
+        }
+
+        // Claude requires strictly alternating user/assistant messages — merge consecutive same-role messages
+        const merged = [];
+        for (const msg of history) {
+            if (merged.length > 0 && merged[merged.length - 1].role === msg.role) {
+                merged[merged.length - 1].content += "\n" + msg.content;
+            } else {
+                merged.push({ ...msg });
+            }
+        }
+
+        // Claude messages array must start with a user message
+        if (merged.length > 0 && merged[0].role === "assistant") merged.shift();
+
+        return merged;
+    } catch (err) {
+        console.error("Thread history error:", err.message);
+        return [];
+    }
+}
+
 // ── Main AI Call ──────────────────────────────────────────────
 
-async function askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext) {
+async function askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = []) {
     const skillContents = skillNames
         .filter(s => s !== "general")
         .map(s => {
@@ -628,11 +674,16 @@ async function askMia(question, skillNames, data, account, clientKnowledge, gree
         ? `[First message from this person today — greet them warmly but briefly, like a colleague would. Just a quick "hey!" or "morning!" type thing, then get to their question. Don't make the greeting a big deal.]\n\n${question}`
         : question;
 
+    // Include full thread history so Mia knows what was already discussed
+    const messages = threadHistory.length > 0
+        ? [...threadHistory, { role: "user", content: userMessage }]
+        : [{ role: "user", content: userMessage }];
+
     const res = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 2000,
         system: system,
-        messages: [{ role: "user", content: userMessage }],
+        messages,
     });
     return res.content[0].text;
 }
@@ -693,8 +744,11 @@ async function processQuestion(question, account, userId, channelId, event, say)
                 webResults.map(r => `- ${r.title}: ${r.snippet} (${r.link})`).join("\n");
         }
 
+        // Fetch thread history so Mia knows what's already been discussed
+        const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
+
         // Ask Mia
-        const answer = await askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext || "");
+        const answer = await askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory);
 
         await say({
             text: answer,
@@ -750,11 +804,19 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
             ? `[First message from this person today — greet them warmly but briefly.]\n\n${question}`
             : question;
 
+        // Fetch thread history so Mia knows what's already been discussed
+        const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
+
+        // Include full thread history so Mia has conversation context
+        const messages = threadHistory.length > 0
+            ? [...threadHistory, { role: "user", content: userMessage }]
+            : [{ role: "user", content: userMessage }];
+
         const res = await anthropic.messages.create({
             model: "claude-sonnet-4-20250514",
             max_tokens: 2000,
             system: system,
-            messages: [{ role: "user", content: userMessage }],
+            messages,
         });
 
         await say({
