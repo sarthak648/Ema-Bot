@@ -596,12 +596,11 @@ YOUR CAPABILITIES:
 - You can search the web via Google — if search results are provided below, you already did this
 - You can read CSV, Excel, and Google Sheets files — if file content is provided below, use it directly
 
-WHEN SOMETHING IS MISSING — be direct, say less:
-- If a file wasn't attached or couldn't be read: say exactly this and nothing more — e.g. "can't see the file, can you re-upload it?"
-- If you need something specific: ask for that one thing only — don't explain what you'd do once you get it
-- If you genuinely cannot do something: say "I can't do that" — not a paragraph about why or what you could do instead
-- NEVER list out what you would analyse, find, or deliver before you've actually done it
-- NEVER explain your capabilities unprompted — just do the work or ask for what's missing
+WHEN SOMETHING IS MISSING — one line, nothing else:
+- Missing file: "can't see the file, can you re-upload it?" — that's it. No bullet points. No "once I have it I'll...". Stop there.
+- Missing info: ask for the ONE thing you need. One sentence. Done.
+- Can't do something: "can't do that" — not a paragraph.
+- HARD RULE: never write bullets explaining what you WOULD do once you get the missing thing. That is the most annoying thing you can do. Just ask for what you need and stop.
 
 RULES:
 - Reference actual numbers from live data when available — be specific
@@ -621,18 +620,28 @@ RULES:
 
 async function readSlackFile(fileObj) {
     try {
-        const url = fileObj.url_private_download || fileObj.url_private;
+        // Slack event payloads only include partial file info — fetch full file to get url_private
+        let fullFile = fileObj;
+        if (!fileObj.url_private && fileObj.id) {
+            const info = await slack.client.files.info({ file: fileObj.id });
+            fullFile = info.file;
+        }
+
+        const url = fullFile.url_private_download || fullFile.url_private;
         if (!url) return null;
 
         const res = await fetch(url, {
             headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+            console.error("File download failed:", res.status, url);
+            return null;
+        }
 
-        const mimetype = (fileObj.mimetype || "").toLowerCase();
-        const filename = fileObj.name || "file";
+        const mimetype = (fullFile.mimetype || fileObj.mimetype || "").toLowerCase();
+        const filename = fullFile.name || fileObj.name || "file";
 
-        // CSV or plain text
+        // CSV
         if (mimetype.includes("csv") || filename.endsWith(".csv")) {
             const text = await res.text();
             return formatFileContent(text, filename);
@@ -655,6 +664,7 @@ async function readSlackFile(fileObj) {
             return `FILE: ${filename}\n${text.substring(0, 15000)}`;
         }
 
+        console.error("Unsupported file type:", mimetype, filename);
         return null;
     } catch (err) {
         console.error("File read error:", err.message);
