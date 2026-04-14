@@ -863,7 +863,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
 
         // If scraping is needed but no URLs given, try to find client website from knowledge
         if (intent.needsScrape && urlsToCrawl.length === 0 && clientKnowledge) {
-            const websiteMatch = clientKnowledge.match(/(?:website|url|site|domain)[:\s]+(?:https?:\/\/)?([^\s,\n]+\.[a-z]{2,})/i);
+            const websiteMatch = clientKnowledge.match(/(?:website|url|site|domain)[:\s(]+(?:https?:\/\/)?([a-z0-9][^\s,\n)]+\.[a-z]{2,})/i);
             if (websiteMatch) {
                 const clientUrl = websiteMatch[1].startsWith("http") ? websiteMatch[1] : "https://" + websiteMatch[1];
                 try { new URL(clientUrl); urlsToCrawl.push(clientUrl); } catch { /* invalid */ }
