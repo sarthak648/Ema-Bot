@@ -802,7 +802,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
         "Give me a sec, pulling *" + account.name + "* data...",
     ];
     const thinkingMsg = thinkingMessages[Math.floor(Math.random() * thinkingMessages.length)];
-    await say({ text: thinkingMsg, thread_ts: event.ts });
+    await say({ text: thinkingMsg, thread_ts: event.thread_ts || event.ts });
 
     try {
         // Run independent tasks in parallel
@@ -855,7 +855,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
         }
 
         if (urlsToCrawl.length > 0) {
-            await say({ text: "browsing the site to understand it better — checking multiple pages...", thread_ts: event.ts });
+            await say({ text: "browsing the site to understand it better — checking multiple pages...", thread_ts: event.thread_ts || event.ts });
             try {
                 const crawlResults = await Promise.all(urlsToCrawl.map(url => crawlWebsite(url)));
                 webContext = crawlResults.map(pages => formatCrawlResults(pages)).join("\n\n");
@@ -881,13 +881,13 @@ async function processQuestion(question, account, userId, channelId, event, say)
 
         await say({
             text: answer,
-            thread_ts: event.ts,
+            thread_ts: event.thread_ts || event.ts,
         });
     } catch (err) {
         console.error("Mia error:", err);
         await say({
             text: "hmm something broke on my end — " + err.message + "\nlet me know if it keeps happening and I'll bug Sarthak to fix it",
-            thread_ts: event.ts,
+            thread_ts: event.thread_ts || event.ts,
         });
     }
 }
@@ -978,13 +978,13 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
 
         await say({
             text: res.content[0].text,
-            thread_ts: event.ts,
+            thread_ts: event.thread_ts || event.ts,
         });
     } catch (err) {
         console.error("Mia error:", err);
         await say({
             text: "hmm something broke — " + err.message,
-            thread_ts: event.ts,
+            thread_ts: event.thread_ts || event.ts,
         });
     }
 }
@@ -1007,7 +1007,7 @@ slack.event("app_mention", async ({ event, say }) => {
         const skills = getAllSkills();
         await say({
             text: "hey! I'm Mia — I work with the Webtopia team on all things paid media :wave:\n\nI can help with stuff like:\n- account audits & performance deep dives\n- campaign optimization\n- budget & bidding strategy\n- ad copy, keywords, audiences\n- figuring out why metrics spiked or dropped\n- researching competitors or landing pages\n- and honestly most things Google Ads related\n\nI have access to these accounts:\n" + clientList + "\n\nJust @ me with whatever you need — like:\n_@Mia how's Barimelts doing this week?_\n_@Mia write some headlines for our new campaign_\n_@Mia check out this landing page and suggest ad copy: [url]_\n\nI've got " + skills.length + " skills loaded so I can go pretty deep on things.",
-            thread_ts: event.ts,
+            thread_ts: event.thread_ts || event.ts,
         });
         return;
     }
@@ -1038,7 +1038,7 @@ slack.event("app_mention", async ({ event, say }) => {
         const clientList = unique.map(a => a.name).join(", ");
         await say({
             text: "hey which account are you asking about? I've got: *" + clientList + "*\njust drop the name in your question and I'll pull everything up",
-            thread_ts: event.ts,
+            thread_ts: event.thread_ts || event.ts,
         });
         return;
     }
@@ -1077,7 +1077,7 @@ slack.event("message", async ({ event, say }) => {
             const clientList = unique.map(a => a.name).join(", ");
             await say({
                 text: "which account should I look at? I've got: *" + clientList + "*",
-                thread_ts: event.ts,
+                thread_ts: event.thread_ts || event.ts,
             });
         } else {
             await processGeneralQuestion(effectiveQuestion, userId, channelId, event, say);
