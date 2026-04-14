@@ -688,6 +688,22 @@ async function readGoogleSheet(url) {
     }
 }
 
+async function readGoogleDoc(url) {
+    try {
+        const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
+        if (!match) return null;
+        const docId = match[1];
+        const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`;
+        const res = await fetch(exportUrl);
+        if (!res.ok) return null;
+        const text = await res.text();
+        return `FILE: Google Doc\n${text.substring(0, 15000)}`;
+    } catch (err) {
+        console.error("Google Doc read error:", err.message);
+        return null;
+    }
+}
+
 function formatFileContent(csvText, filename) {
     // Limit to first 300 rows to avoid token overload
     const rows = csvText.split("\n").filter(r => r.trim()).slice(0, 300);
@@ -821,6 +837,14 @@ async function processQuestion(question, account, userId, channelId, event, say)
             if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
         }
 
+        // Read Google Docs URLs if present
+        const docUrls = intent.urls.filter(u => u.includes("docs.google.com/document"));
+        if (docUrls.length > 0) {
+            const docContents = await Promise.all(docUrls.map(u => readGoogleDoc(u)));
+            const parsed = docContents.filter(Boolean);
+            if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
+        }
+
         // If scraping is needed but no URLs given, try to find client website from knowledge
         if (intent.needsScrape && urlsToCrawl.length === 0 && clientKnowledge) {
             const websiteMatch = clientKnowledge.match(/(?:website|url|site|domain)[:\s]+(?:https?:\/\/)?([^\s,\n]+\.[a-z]{2,})/i);
@@ -892,6 +916,14 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
         if (sheetUrls.length > 0) {
             const sheetContents = await Promise.all(sheetUrls.map(u => readGoogleSheet(u)));
             const parsed = sheetContents.filter(Boolean);
+            if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
+        }
+
+        // Read Google Docs URLs if present
+        const docUrls = intent.urls.filter(u => u.includes("docs.google.com/document"));
+        if (docUrls.length > 0) {
+            const docContents = await Promise.all(docUrls.map(u => readGoogleDoc(u)));
+            const parsed = docContents.filter(Boolean);
             if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
         }
 
