@@ -426,7 +426,9 @@ function formatCrawlResults(pages) {
 
 function detectUrls(text) {
     const urlRegex = /https?:\/\/[^\s<>]+/g;
-    return text.match(urlRegex) || [];
+    const matches = text.match(urlRegex) || [];
+    // Slack formats URLs as <https://url|Display Text> — strip the pipe and display text
+    return matches.map(u => u.split("|")[0]);
 }
 
 async function detectIntent(question) {
@@ -691,12 +693,26 @@ async function readGoogleSheet(url) {
 async function readGoogleDoc(url) {
     try {
         const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
-        if (!match) return null;
+        if (!match) {
+            console.log("Google Doc: no doc ID found in URL:", url);
+            return null;
+        }
         const docId = match[1];
         const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`;
+        console.log("Google Doc: fetching", exportUrl);
         const res = await fetch(exportUrl);
-        if (!res.ok) return null;
+        console.log("Google Doc: response status", res.status, "content-type", res.headers.get("content-type"));
+        if (!res.ok) {
+            console.error("Google Doc: fetch failed with status", res.status);
+            return null;
+        }
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("text/html")) {
+            console.error("Google Doc: got HTML response — doc is likely private or requires login");
+            return null;
+        }
         const text = await res.text();
+        console.log("Google Doc: read", text.length, "chars");
         return `FILE: Google Doc\n${text.substring(0, 15000)}`;
     } catch (err) {
         console.error("Google Doc read error:", err.message);
