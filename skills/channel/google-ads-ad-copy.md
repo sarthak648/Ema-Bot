@@ -40,17 +40,14 @@ Ask which angle(s) apply:
 - **Brand** — Targeting users searching for the brand by name
 - **Multiple** — User can select more than one
 
-### 1d. Reference Material (Ask Only If Not Already Provided)
-- Are there existing Google Ads currently running? (Share copy or screenshots)
-- Are there Meta/Facebook Ads running that can be used as creative reference?
+### 1d. Reference Material
+- If the user shares existing Google Ads or Meta/Facebook Ads, use them.
+- If they are not shared, do not ask for them and do not mention them.
 
-**How to use Meta/Facebook reference ads — hard rule:**
-Meta ads show you the brand's tone and what creative angles they've explored. That is ALL they are useful for. You must NOT:
-- Use the same concept angle or concept name as any Meta ad
-- Lift any phrase, hook, or headline structure from a Meta ad
-- Use the Meta ad's emotional angle as the basis for your Google ad concept
-
-If the Meta ad is about "The Missing Piece" — your Google ad concepts must NOT be about missing pieces, completeness, or partial solutions. Build your concepts from the landing page only. If you find yourself using language that mirrors the Meta ad, stop and rewrite from the landing page.
+**How to use reference ads:**
+- Landing page is always the primary source. Build concepts from the page first.
+- If Meta/Facebook ads are shared, use them as a secondary reference — look for messaging angles, emotional hooks, or claims that resonated and see if any can be adapted for Google search intent.
+- Never mention to the user that you are or aren't using Meta ads. Just do the work silently.
 
 ---
 
@@ -82,20 +79,12 @@ If you cannot extract a field because it is not on the page, write "Not found on
 
 **Never produce a single copy concept.** Always present **3 distinct concept angles**, clearly labelled. Each concept must be based on a different strategic angle derived from what you found on the landing page — not from Meta ads, not from general marketing instinct.
 
-**Valid concept angle sources (use only these):**
-- A specific ingredient, mechanism, or feature found on the landing page
-- A specific customer outcome or result mentioned on the page
-- A specific piece of social proof (rating, review count, award)
-- A specific use case or audience segment described on the page
-- A specific offer or guarantee found on the page
-- A specific pain point the page directly addresses
+**Where to source concept angles (in priority order):**
+1. Landing page first — ingredients, mechanisms, clinical claims, customer results, social proof, offers, guarantees
+2. Meta/Facebook ads if shared — messaging angles or emotional hooks that could be adapted for search intent
+3. General category knowledge — what searchers in this category typically care about
 
-**Invalid concept angle sources (never use these):**
-- Concept angles borrowed or adapted from Meta/Facebook ad creatives shared as reference
-- Generic emotional angles not grounded in specific page content ("missing piece", "complete solution", "finally feel whole")
-- Concepts you invented without a specific page claim to support them
-
-Name each concept after a specific product truth — not after a vague emotional theme.
+Name each concept after a specific product truth. Do not name concepts after vague emotional themes ("The Missing Piece", "Finally Complete") — name them after what the product actually does ("3-Pathway Hormonal Support", "Clinically Studied Formula", "Week 8 Results").
 
 ### Concept Structure Template
 
@@ -157,8 +146,8 @@ Before presenting copy to the user, run through every item on this checklist. If
 - [ ] Read each headline in isolation. Does a stranger know what is being sold? If no — rewrite it.
 
 **Source check:**
-- [ ] For every concept angle — can you point to the specific claim on the landing page that inspired it? If no — it came from Meta ads or thin air. Rewrite the concept from a real page claim.
-- [ ] Look at the Meta ads that were shared. Does your copy mirror any phrase, hook, or angle from those ads? If yes — rewrite.
+- [ ] For every concept angle — can you point to a specific claim from the landing page or reference ads that inspired it? If no — rewrite from real content.
+- [ ] Is every concept named after a product truth, not a vague theme? If no — rename it.
 
 **Independence check:**
 - [ ] Read each headline with no surrounding context. Does it make complete sense on its own? If no — rewrite.
@@ -367,7 +356,7 @@ Deliver audit findings before writing new copy so the user understands what's be
 | Mistake | Fix |
 |---------|-----|
 | Headlines that don't name the product | At least 6–8 headlines must clearly state what is being sold |
-| Lifting copy from Meta ads | Meta ads are tone reference only — Google copy must be written from the landing page |
+| Ignoring Meta ads when provided | Use Meta ads as secondary reference — landing page first, Meta ads second |
 | Benefits with no product context ("Get Back in Sync") | Name the product or category — "OvaSync Restores Your Cycle" |
 | Generic descriptions ("high quality", "trusted brand") | Pull specific claims from the landing page — ingredients, stats, guarantees |
 | Headlines over 30 characters | Count before publishing — always |
