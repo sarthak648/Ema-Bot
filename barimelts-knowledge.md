@@ -594,7 +594,7 @@ Caplets = Women's health (except Once-Daily which is bariatric-specific)
 ## PART 8: AD PERFORMANCE CONTEXT
 
 - Barimelts runs Google Ads and paid social
-- Primary sales channel: Amazon, website (barimelts.com)
+- Primary sales channel: Amazon, website: https://www.barimelts.com
 - Google Ads account ID: 746-735-8073
 - Windsor.ai connected for live Google Ads performance data
 - Agency: Webtopia manages paid media

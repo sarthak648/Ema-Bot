@@ -617,6 +617,31 @@ RULES:
 - Think before answering: does this actually solve their problem?`;
 }
 
+// ── Client Website Extraction ────────────────────────────────
+// Reads the client's website URL from their knowledge file.
+// Handles common formats: "website: domain.com", "website (domain.com)",
+// "https://domain.com", etc. Never hardcodes URLs — always reads from knowledge.
+
+function extractClientWebsite(knowledge) {
+    if (!knowledge) return null;
+
+    // 1. Explicit https:// URL next to a website/url/site/domain keyword
+    const explicitMatch = knowledge.match(/(?:website|url|site|domain|landing)[^:\n]*?[:\s(]+(https?:\/\/[^\s,\n)]+)/i);
+    if (explicitMatch) {
+        try { new URL(explicitMatch[1]); return explicitMatch[1]; } catch { /* invalid */ }
+    }
+
+    // 2. Bare domain next to a website/url/site/domain keyword (strips leading punctuation)
+    const bareMatch = knowledge.match(/(?:website|url|site|domain|landing)[^:\n]*?[:\s(]+(?:https?:\/\/)?([a-z0-9][a-z0-9.-]+\.[a-z]{2,})/i);
+    if (bareMatch) {
+        const candidate = bareMatch[1].replace(/[),;]+$/, ""); // strip trailing punctuation
+        const url = candidate.startsWith("http") ? candidate : "https://" + candidate;
+        try { new URL(url); return url; } catch { /* invalid */ }
+    }
+
+    return null;
+}
+
 // ── File Reading ─────────────────────────────────────────────
 // Handles CSV, Excel (.xlsx/.xls) uploaded to Slack, and Google Sheets URLs.
 
@@ -797,7 +822,7 @@ async function askMia(question, skillNames, data, account, clientKnowledge, gree
 
     const res = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 2000,
+        max_tokens: 4000,
         system: system,
         messages,
     });
@@ -863,11 +888,8 @@ async function processQuestion(question, account, userId, channelId, event, say)
 
         // If scraping is needed but no URLs given, try to find client website from knowledge
         if (intent.needsScrape && urlsToCrawl.length === 0 && clientKnowledge) {
-            const websiteMatch = clientKnowledge.match(/(?:website|url|site|domain)[:\s(]+(?:https?:\/\/)?([a-z0-9][^\s,\n)]+\.[a-z]{2,})/i);
-            if (websiteMatch) {
-                const clientUrl = websiteMatch[1].startsWith("http") ? websiteMatch[1] : "https://" + websiteMatch[1];
-                try { new URL(clientUrl); urlsToCrawl.push(clientUrl); } catch { /* invalid */ }
-            }
+            const clientUrl = extractClientWebsite(clientKnowledge);
+            if (clientUrl) urlsToCrawl.push(clientUrl);
         }
 
         if (urlsToCrawl.length > 0) {
@@ -892,8 +914,17 @@ async function processQuestion(question, account, userId, channelId, event, say)
         // Fetch thread history so Mia knows what's already been discussed
         const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
 
+        // Send a "still working" message after 20s so Slack doesn't look frozen on big tasks
+        let stillWorkingTimer = null;
+        const stillWorkingMsg = setTimeout(async () => {
+            try {
+                await say({ text: "still on it — this one's a big task, almost there...", thread_ts: event.thread_ts || event.ts });
+            } catch (_) {}
+        }, 20000);
+
         // Ask Mia
         const answer = await askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory);
+        clearTimeout(stillWorkingMsg);
 
         await say({
             text: answer,
