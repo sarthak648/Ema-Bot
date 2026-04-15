@@ -44,14 +44,58 @@ Ask which angle(s) apply:
 - Are there existing Google Ads currently running? (Share copy or screenshots)
 - Are there Meta/Facebook Ads running that can be used as creative reference?
 
-**How to use reference ads — critical rule:**
-Meta/Facebook ads are used to understand tone, messaging angles, and what the brand has already tested. They are **NOT** a source for Google Ads headlines. Do not lift phrases, hooks, or copy from Meta ads into Google Ads. Google search is intent-driven — someone searching has a specific need. Meta is interruption-based — someone is scrolling. The copy styles are fundamentally different. Use Meta ads to understand the brand voice only.
+**How to use Meta/Facebook reference ads — hard rule:**
+Meta ads show you the brand's tone and what creative angles they've explored. That is ALL they are useful for. You must NOT:
+- Use the same concept angle or concept name as any Meta ad
+- Lift any phrase, hook, or headline structure from a Meta ad
+- Use the Meta ad's emotional angle as the basis for your Google ad concept
+
+If the Meta ad is about "The Missing Piece" — your Google ad concepts must NOT be about missing pieces, completeness, or partial solutions. Build your concepts from the landing page only. If you find yourself using language that mirrors the Meta ad, stop and rewrite from the landing page.
+
+---
+
+## Step 1e — Mandatory Website Research Output (Do This Before Writing Any Copy)
+
+**Before writing a single headline, output the following summary of what you found on the landing page.** This is non-negotiable. Do not skip it. Do not summarise it vaguely. Be specific.
+
+```
+WEBSITE RESEARCH SUMMARY
+─────────────────────────
+Product name: [exact product name as it appears on the page]
+Product type: [what it is in one sentence — supplement, software, service, etc.]
+Who it's for: [exact target customer described on the page]
+Core promise: [the primary claim the page makes]
+Key ingredients / features: [list specific ingredients, features, or components named on the page]
+Specific claims: [exact claims — "clinically studied", "30-day results", "4.8 stars", etc.]
+Social proof: [exact numbers — reviews, ratings, customer count, awards]
+Offers / CTAs on page: [free shipping, money-back guarantee, discount, trial, etc.]
+Compliance notes: [any FDA disclaimers, legal asterisks, regulated claims]
+Brand tone: [how the brand talks — clinical, warm, bold, minimal, etc.]
+─────────────────────────
+```
+
+If you cannot extract a field because it is not on the page, write "Not found on page." Do not guess or fill in from Meta ads.
 
 ---
 
 ## Step 2 — Write Ad Copy: 3 Concepts, Always
 
-**Never produce a single copy concept.** Always present **3 distinct concept angles**, clearly labelled. Each concept must be based on a different strategic angle (e.g., pain-led, outcome-led, proof-led, question-led, objection-handling). Name and explain each concept before presenting the copy.
+**Never produce a single copy concept.** Always present **3 distinct concept angles**, clearly labelled. Each concept must be based on a different strategic angle derived from what you found on the landing page — not from Meta ads, not from general marketing instinct.
+
+**Valid concept angle sources (use only these):**
+- A specific ingredient, mechanism, or feature found on the landing page
+- A specific customer outcome or result mentioned on the page
+- A specific piece of social proof (rating, review count, award)
+- A specific use case or audience segment described on the page
+- A specific offer or guarantee found on the page
+- A specific pain point the page directly addresses
+
+**Invalid concept angle sources (never use these):**
+- Concept angles borrowed or adapted from Meta/Facebook ad creatives shared as reference
+- Generic emotional angles not grounded in specific page content ("missing piece", "complete solution", "finally feel whole")
+- Concepts you invented without a specific page claim to support them
+
+Name each concept after a specific product truth — not after a vague emotional theme.
 
 ### Concept Structure Template
 
@@ -83,10 +127,10 @@ PINNING RECOMMENDATIONS:
 ---
 ```
 
-**Output formatting rules — hard:**
-- No serial numbers (1. 2. 3.) next to headlines or descriptions
-- No character counts in brackets after headlines or descriptions
-- Just the copy, clean, one per line
+**⚠ OUTPUT FORMAT — HARD RULES — DO NOT IGNORE:**
+- **NO serial numbers.** Do not write "1." "2." "3." before any headline or description. Ever.
+- **NO character counts.** Do not write "(25)" or "(87)" or any number in brackets after copy. Ever.
+- Just the copy. Clean. One line per headline. One line per description. Nothing else.
 
 ---
 
@@ -101,6 +145,34 @@ PINNING RECOMMENDATIONS:
 | PMax Description | 90 chars | Same as RSA |
 
 **Before presenting any copy, verify every single headline and description against these limits.** Do not estimate — count. If a headline is 31 characters, it is invalid. Rewrite it.
+
+---
+
+## Step 3b — Pre-Submission Self-Check (Run Before Presenting Any Copy)
+
+Before presenting copy to the user, run through every item on this checklist. If any item fails, fix it before presenting.
+
+**Product clarity check:**
+- [ ] Count how many headlines name the product name or product category. If fewer than 6, rewrite until you have at least 6.
+- [ ] Read each headline in isolation. Does a stranger know what is being sold? If no — rewrite it.
+
+**Source check:**
+- [ ] For every concept angle — can you point to the specific claim on the landing page that inspired it? If no — it came from Meta ads or thin air. Rewrite the concept from a real page claim.
+- [ ] Look at the Meta ads that were shared. Does your copy mirror any phrase, hook, or angle from those ads? If yes — rewrite.
+
+**Independence check:**
+- [ ] Read each headline with no surrounding context. Does it make complete sense on its own? If no — rewrite.
+- [ ] Read each description alone. Does it make complete sense without seeing the headline? If no — rewrite.
+
+**Format check:**
+- [ ] Are there any serial numbers (1. 2. 3.) in the output? If yes — remove all of them.
+- [ ] Are there any character counts in brackets like (25) or (87)? If yes — remove all of them.
+
+**Character limit check:**
+- [ ] Is every headline 30 characters or under? Count manually — do not estimate.
+- [ ] Is every description 90 characters or under? Count manually.
+
+Only present copy that passes all checks above.
 
 ---
 
