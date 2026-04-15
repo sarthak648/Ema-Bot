@@ -44,7 +44,8 @@ Ask which angle(s) apply:
 - Are there existing Google Ads currently running? (Share copy or screenshots)
 - Are there Meta/Facebook Ads running that can be used as creative reference?
 
-These are used to understand existing messaging, tone, and angles to build from or improve on — not to copy.
+**How to use reference ads — critical rule:**
+Meta/Facebook ads are used to understand tone, messaging angles, and what the brand has already tested. They are **NOT** a source for Google Ads headlines. Do not lift phrases, hooks, or copy from Meta ads into Google Ads. Google search is intent-driven — someone searching has a specific need. Meta is interruption-based — someone is scrolling. The copy styles are fundamentally different. Use Meta ads to understand the brand voice only.
 
 ---
 
@@ -61,19 +62,19 @@ Angle: [One sentence explaining the strategic angle and why it works for this au
 ---
 
 RSA HEADLINES (15 total — max 30 characters each):
-[List all 15 headlines with character count next to each]
+[List headlines — no serial numbers, no character counts]
 
 RSA DESCRIPTIONS (4 total — max 90 characters each):
-[List all 4 descriptions with character count next to each]
+[List descriptions — no serial numbers, no character counts]
 
 PMAX HEADLINES (if requested — max 30 characters, up to 15):
-[List headlines]
+[List headlines — no serial numbers, no character counts]
 
 PMAX LONG HEADLINES (if requested — max 90 characters, up to 5):
-[List long headlines]
+[List long headlines — no serial numbers, no character counts]
 
 PMAX DESCRIPTIONS (if requested — max 90 characters, up to 5):
-[List descriptions]
+[List descriptions — no serial numbers, no character counts]
 
 PINNING RECOMMENDATIONS:
 - Headline Position 1 (pin): [headline] — Reason: [why]
@@ -81,6 +82,11 @@ PINNING RECOMMENDATIONS:
 - Description Position 1 (pin): [description] — Reason: [why]
 ---
 ```
+
+**Output formatting rules — hard:**
+- No serial numbers (1. 2. 3.) next to headlines or descriptions
+- No character counts in brackets after headlines or descriptions
+- Just the copy, clean, one per line
 
 ---
 
@@ -100,13 +106,30 @@ PINNING RECOMMENDATIONS:
 
 ## Step 4 — Copy Writing Principles
 
-### 4a. Independence Rule
+### 4a. Product Clarity Rule (Most Important Rule)
+
+**Every headline must make it clear what product or service is being advertised.**
+
+A person who has never heard of the brand should be able to read any single headline and understand what is being sold. Benefits, outcomes, and pain points are only useful if the reader knows what product is delivering them.
+
+**Fail:** "Get Back in Sync Today" — sync what? With what product?
+**Fail:** "Three Root Causes Targeted" — three root causes of what? What is targeting them?
+**Fail:** "Balance Your Whole System" — what is balancing it? A pill? A service? An app?
+**Pass:** "OvaSync: Hormonal Balance Supplement"
+**Pass:** "OvaSync Targets 3 Root Causes"
+**Pass:** "Hormonal Supplement for Women"
+
+**The test:** Cover the brand name and any other headlines. Read the headline in isolation. Does a stranger know what is being sold? If no — rewrite it.
+
+At minimum, 6–8 of the 15 headlines must name the product, product category, or clearly state what it is. Benefits-only headlines are only acceptable when the product is already named in another headline that will always appear alongside it — and even then, use sparingly.
+
+### 4b. Independence Rule
 Every headline must make sense on its own. Every description must make sense on its own. Google shows 3 headlines and 2 descriptions in any combination — if Headline 2 depends on Headline 1 to make sense, the ad breaks.
 
 **Fail:** H1: "Tired of Slow Shipping?" / H2: "We Fix That"
 **Pass:** H1: "Tired of Slow Shipping?" / H2: "Ship Same-Day With [Brand]"
 
-### 4b. Mix Statements and Questions
+### 4c. Mix Statements and Questions
 Ad copy should not be all statements or all questions. Use both:
 - **Questions** create pattern interrupts and trigger self-identification ("Still Tracking Spend in Sheets?")
 - **Statements** assert credibility and deliver the answer ("Your Ads, Fully Managed")
@@ -114,7 +137,7 @@ Ad copy should not be all statements or all questions. Use both:
 
 A strong RSA should have a mix across its 15 headlines.
 
-### 4c. Intent Match
+### 4d. Intent Match
 Match the copy to what the searcher is actually thinking:
 
 | Query type | Copy priority |
@@ -125,7 +148,7 @@ Match the copy to what the searcher is actually thinking:
 | `[keyword] for [vertical]` | Mirror their vertical language exactly |
 | `best [category]` | Social proof + top-ranking signal |
 
-### 4d. RSA Headline Categories (Distribute Across All 15 Slots)
+### 4e. RSA Headline Categories (Distribute Across All 15 Slots)
 
 **Category 1 — Core Value / What You Are (2–3 headlines)**
 - `[Keyword] for [ICP]`
@@ -154,17 +177,20 @@ Transform features into outcomes:
 - `[Objection]? [One-Line Answer]`
 - `Why [Number] Teams Use [Brand]`
 
-### 4e. Description Best Practices
+### 4f. Description Best Practices
 - Each description adds *new* information — never restate the headline
 - At least 2 of 4 descriptions must end with a CTA or action signal
 - Use the full 90 characters — short descriptions waste space and signal
+- **Descriptions must name or clearly reference the product** — do not write descriptions that could apply to any brand in any industry
+- **Pull specific claims from the landing page** — ingredients, certifications, clinical studies, customer results, guarantees, shipping offers. Generic descriptions ("high quality", "trusted brand", "great results") are not acceptable
+- **Ground every claim in something real from the page** — if the landing page says "clinically studied", use that. If it says "3 root causes", name what those causes are in the description, not just "3 root causes"
 - Frameworks:
-  - **Problem → Solution → CTA:** "Tired of manual reporting? [Brand] automates everything. Start free today."
-  - **Benefit → Proof → CTA:** "Cut ad waste by 30%. Trusted by 500+ ecommerce stores. Get a free audit."
-  - **Question → Answer → CTA:** "Not seeing ROAS? We diagnose and fix underperforming Google Ads. Book a call."
+  - **Problem → Product → CTA:** "Struggling with hormonal acne and irregular cycles? OvaSync targets the root causes. Shop now."
+  - **Benefit → Proof → CTA:** "Clinically studied ingredients for hormonal balance. 4.8★ from 2,000+ women. Try risk-free."
+  - **Question → Answer → CTA:** "Why do symptoms keep coming back? OvaSync addresses cortisol, insulin, and estrogen together. Learn more."
   - **Social Proof → Differentiator → CTA:** "Rated 4.9/5 by 200+ clients. No lock-in contracts. Start in 48 hours."
 
-### 4f. Pinning Recommendations
+### 4g. Pinning Recommendations
 Always specify pinning recommendations with reasoning:
 - **Pin H1** to your highest-priority keyword/brand/category headline
 - **Pin H2** to your primary differentiator or unique hook
@@ -268,7 +294,12 @@ Deliver audit findings before writing new copy so the user understands what's be
 
 | Mistake | Fix |
 |---------|-----|
+| Headlines that don't name the product | At least 6–8 headlines must clearly state what is being sold |
+| Lifting copy from Meta ads | Meta ads are tone reference only — Google copy must be written from the landing page |
+| Benefits with no product context ("Get Back in Sync") | Name the product or category — "OvaSync Restores Your Cycle" |
+| Generic descriptions ("high quality", "trusted brand") | Pull specific claims from the landing page — ingredients, stats, guarantees |
 | Headlines over 30 characters | Count before publishing — always |
+| Serial numbers or character counts in output | Present copy clean — no numbers, no brackets |
 | All statements, no questions | Mix question hooks with solution statements |
 | Dependent headlines ("We Fix That") | Every headline must stand alone |
 | Vague social proof ("Thousands of customers") | Use real numbers ("12,400 stores trust us") |
