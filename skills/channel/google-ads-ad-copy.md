@@ -173,12 +173,12 @@ Only present copy that passes all checks above.
 
 A person who has never heard of the brand should be able to read any single headline and understand what is being sold. Benefits, outcomes, and pain points are only useful if the reader knows what product is delivering them.
 
-**Fail:** "Get Back in Sync Today" — sync what? With what product?
+**Fail:** "Get Results Today" — results from what? What product?
 **Fail:** "Three Root Causes Targeted" — three root causes of what? What is targeting them?
-**Fail:** "Balance Your Whole System" — what is balancing it? A pill? A service? An app?
-**Pass:** "OvaSync: Hormonal Balance Supplement"
-**Pass:** "OvaSync Targets 3 Root Causes"
-**Pass:** "Hormonal Supplement for Women"
+**Fail:** "Finally Feel Better" — better how? From what? With what?
+**Pass:** "[Brand]: [Product Category]" e.g. "Huel: Complete Nutrition Shake"
+**Pass:** "[Brand] [Specific Claim]" e.g. "Klaviyo Automates Email Revenue"
+**Pass:** "[Product Category] for [Audience]" e.g. "CRM Software for Startups"
 
 **The test:** Cover the brand name and any other headlines. Read the headline in isolation. Does a stranger know what is being sold? If no — rewrite it.
 
@@ -246,10 +246,10 @@ Transform features into outcomes:
 - **Pull specific claims from the landing page** — ingredients, certifications, clinical studies, customer results, guarantees, shipping offers. Generic descriptions ("high quality", "trusted brand", "great results") are not acceptable
 - **Ground every claim in something real from the page** — if the landing page says "clinically studied", use that. If it says "3 root causes", name what those causes are in the description, not just "3 root causes"
 - Frameworks:
-  - **Problem → Product → CTA:** "Struggling with hormonal acne and irregular cycles? OvaSync targets the root causes. Shop now."
-  - **Benefit → Proof → CTA:** "Clinically studied ingredients for hormonal balance. 4.8★ from 2,000+ women. Try risk-free."
-  - **Question → Answer → CTA:** "Why do symptoms keep coming back? OvaSync addresses cortisol, insulin, and estrogen together. Learn more."
-  - **Social Proof → Differentiator → CTA:** "Rated 4.9/5 by 200+ clients. No lock-in contracts. Start in 48 hours."
+  - **Problem → Product → CTA:** "Still tracking ad spend in spreadsheets? [Brand] automates your reporting in one place. Try free."
+  - **Benefit → Proof → CTA:** "Clinically studied formula. 4.8★ from 2,000+ verified buyers. Try risk-free today."
+  - **Question → Answer → CTA:** "Why isn't your ROAS improving? [Brand] diagnoses and fixes underperforming Google Ads. Book a call."
+  - **Social Proof → Differentiator → CTA:** "Rated 4.9/5 by 300+ clients. No lock-in contracts. Get started in 48 hours."
 
 ### 4g. Pinning Recommendations
 Always specify pinning recommendations with reasoning:
@@ -357,7 +357,7 @@ Deliver audit findings before writing new copy so the user understands what's be
 |---------|-----|
 | Headlines that don't name the product | At least 6–8 headlines must clearly state what is being sold |
 | Ignoring Meta ads when provided | Use Meta ads as secondary reference — landing page first, Meta ads second |
-| Benefits with no product context ("Get Back in Sync") | Name the product or category — "OvaSync Restores Your Cycle" |
+| Benefits with no product context ("Get Results Today") | Name the product or category — "[Brand] Delivers [Specific Result]" |
 | Generic descriptions ("high quality", "trusted brand") | Pull specific claims from the landing page — ingredients, stats, guarantees |
 | Headlines over 30 characters | Count before publishing — always |
 | Serial numbers or character counts in output | Present copy clean — no numbers, no brackets |

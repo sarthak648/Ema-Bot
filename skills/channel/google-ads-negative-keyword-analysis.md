@@ -58,7 +58,7 @@ For every search term in the report, cross-reference against the website to dete
 - ⚠️ **Ambiguous** — loosely related but likely wrong intent
 - ❌ **Irrelevant** — no match to any product, service, or category on site
 
-Use your judgment. A pet supplement brand seeing "dog training" queries — that is irrelevant. A clothing brand seeing "how to style" — that is ambiguous but could be TOFU.
+Use your judgment. A project management software brand seeing "project management jobs" queries — that is irrelevant. A clothing brand seeing "how to style" — that is ambiguous but could be TOFU.
 
 ---
 
@@ -137,10 +137,10 @@ Group by recommended match type. For each term include: the term, match type, re
 ```
 PHRASE NEGATIVES — add at campaign level
 -----------------------------------------------
-"dog training"       | £4.20 spent | 0 conv | Irrelevant — brand sells supplements, not training
-"how to make"        | £3.10 spent | 0 conv | Informational intent, no purchase signal
-"free dog food"      | £2.80 spent | 0 conv | Free-seeking intent, not a buyer
-"jobs"               | £1.50 spent | 0 conv | Career intent, not product search
+"project management jobs"  | £4.20 spent | 0 conv | Irrelevant — career intent, not a buyer
+"how to make a gantt chart"| £3.10 spent | 0 conv | Informational intent, no purchase signal
+"free project management"  | £2.80 spent | 0 conv | Free-seeking intent, not a buyer
+"jobs"                     | £1.50 spent | 0 conv | Career intent, not product search
 
 BROAD NEGATIVES — use with caution
 -----------------------------------------------
@@ -148,7 +148,7 @@ free                 | Appears in 6 queries totalling £9.20 | No buyer intent a
 
 EXACT NEGATIVES — specific query blocking
 -----------------------------------------------
-[barimelts side effects] | £6.00 spent | 0 conv | Concern-based query, not purchase intent
+[brand name side effects] | £6.00 spent | 0 conv | Concern-based query, not purchase intent
 ```
 
 ### Section 2 — ⚠️ Competitor Terms — Do Not Negative, Consider Targeting
@@ -170,8 +170,8 @@ Terms with low spend and no conversions that need more data before a decision is
 ```
 MONITOR — revisit when spend reaches 50
 -----------------------------------------------
-"kids magnesium supplement"  | £3.20 spent | 0 conv | Relevant query, low spend — give it more time
-"sleep aid for children"     | £1.80 spent | 0 conv | Potentially relevant — monitor for conversions
+"best project management app" | £3.20 spent | 0 conv | Relevant query, low spend — give it more time
+"team task tracking software" | £1.80 spent | 0 conv | Potentially relevant — monitor for conversions
 ```
 
 ### Section 4 — ✅ Keywords to Harvest
@@ -181,8 +181,8 @@ Terms performing above ROAS target that are not yet in the account as keywords.
 ```
 RECOMMENDED EXACT MATCH KEYWORDS
 -----------------------------------------------
-"barimelts melatonin gummies"  | ROAS 6.2x | £18 spend | Add to [Brand - Exact] ad group
-"kids sleep supplement uk"     | ROAS 5.1x | £12 spend | Add to [Generic - Sleep] ad group
+"[brand] [product name]"       | ROAS 6.2x | £18 spend | Add to [Brand - Exact] ad group
+"[product category] [location]"| ROAS 5.1x | £12 spend | Add to [Generic - Category] ad group
 ```
 
 ### Section 5 — 📊 Summary

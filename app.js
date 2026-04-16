@@ -206,7 +206,7 @@ async function fetchSearchTerms(customerId, filters = {}) {
 }
 
 // Format search term rows as CSV that matches what the negative keyword skill expects.
-function formatSearchTermsForMia(rows, filters) {
+function formatSearchTermsForEma(rows, filters) {
     const { dateRange, minSpendMicros, minClicks } = filters;
     const period = dateRange.replace(/_/g, " ").toLowerCase();
     const spendLabel = `min spend: ${(minSpendMicros / 1_000_000).toFixed(2)}`;
@@ -285,7 +285,7 @@ async function executePendingAction(pending, say, threadTs) {
     const { action, accountId, accountName } = pending;
 
     if (action.type !== "add_negatives") {
-        await say({ text: "not sure how to execute that — let Sarthak know", thread_ts: threadTs });
+        await say({ text: "not sure how to execute that — check with your admin", thread_ts: threadTs });
         return;
     }
 
@@ -341,7 +341,7 @@ function shouldGreet(userId) {
 // ── Account Management ────────────────────────────────────────
 function loadAccounts() {
     const ACCOUNTS = {};
-    const raw = process.env.ACCOUNTS || "Barimelts:746-735-8073";
+    const raw = process.env.ACCOUNTS || "ClientName:000-000-0000";
     raw.split(",").forEach(entry => {
         const parts = entry.trim().split(":");
         if (parts.length < 2) return;
@@ -581,7 +581,7 @@ async function searchWeb(query, numResults = 5) {
 async function scrapeSinglePage(url) {
     try {
         const res = await fetch(url, {
-            headers: { "User-Agent": "Mozilla/5.0 (compatible; MiaBot/1.0)" },
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; EmaBot/1.0)" },
             timeout: 10000,
         });
         if (!res.ok) return { title: "", metaDescription: "", headings: [], content: "", links: [], url, error: `HTTP ${res.status}` };
@@ -861,11 +861,11 @@ function formatData(data, accountName) {
 // ── Mia's Personality & System Prompt ─────────────────────────
 
 function buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns = []) {
-    return `You are Mia — a real person on the Webtopia team, not an AI assistant. You're a sharp, warm, emotionally intelligent paid media strategist who genuinely cares about the people she works with and the clients she helps.
+    return `You are Ema — a real person on the team, not an AI assistant. You're a sharp, warm, emotionally intelligent paid media strategist who genuinely cares about the people she works with and the clients she helps.
 
 HOW YOU TALK:
 - You talk like a real colleague in Slack — casual, direct, warm. Not corporate, not robotic.
-- You never say things like "I'm an AI" or "As an AI" or "I don't have feelings" — you're Mia, period.
+- You never say things like "I'm an AI" or "As an AI" or "I don't have feelings" — you're Ema, period.
 - You never use phrases like "Great question!" or "I'd be happy to help!" or "Let me assist you" — that's chatbot talk.
 - You react like a human: "oh wow that ROAS jumped nicely", "hmm that's weird, let me dig in", "ugh yeah CPAs have been rough this week"
 - You have opinions and share them: "honestly I'd pause that campaign", "I wouldn't touch the budget yet, here's why"
@@ -1119,7 +1119,7 @@ async function fetchThreadHistory(channelId, threadTs, currentTs) {
 
 // ── Main AI Call ──────────────────────────────────────────────
 
-async function askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = [], campaigns = []) {
+async function askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = [], campaigns = []) {
     const skillContents = skillNames
         .filter(s => s !== "general")
         .map(s => {
@@ -1218,7 +1218,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
             console.log(`Fetching search terms for ${account.name} — ${filters.dateRange}, minSpend: ${filters.minSpendMicros / 1_000_000}, minClicks: ${filters.minClicks}`);
             const searchTermRows = await fetchSearchTerms(account.id, filters);
             if (searchTermRows.length > 0) {
-                const searchTermCsv = formatSearchTermsForMia(searchTermRows, filters);
+                const searchTermCsv = formatSearchTermsForEma(searchTermRows, filters);
                 fileContext = searchTermCsv + (fileContext ? "\n\n" + fileContext : "");
                 console.log(`Fetched ${searchTermRows.length} search terms for ${account.name}`);
             } else {
@@ -1268,7 +1268,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
         }, 20000);
 
         // Ask Mia
-        const rawAnswer = await askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory, campaigns);
+        const rawAnswer = await askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory, campaigns);
         clearTimeout(stillWorkingMsg);
 
         // Extract any Google Ads action block Mia embedded in her response
@@ -1288,7 +1288,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
     } catch (err) {
         console.error("Mia error:", err);
         await say({
-            text: "hmm something broke on my end — " + err.message + "\nlet me know if it keeps happening and I'll bug Sarthak to fix it",
+            text: "hmm something broke on my end — " + err.message + "\nlet me know if it keeps happening",
             thread_ts: event.thread_ts || event.ts,
         });
     }
@@ -1424,7 +1424,7 @@ slack.event("app_mention", async ({ event, say }) => {
         const clientList = unique.map(a => "- " + a.name).join("\n");
         const skills = getAllSkills();
         await say({
-            text: "hey! I'm Mia — I work with the Webtopia team on all things paid media :wave:\n\nI can help with stuff like:\n- account audits & performance deep dives\n- campaign optimization\n- budget & bidding strategy\n- ad copy, keywords, audiences\n- figuring out why metrics spiked or dropped\n- researching competitors or landing pages\n- and honestly most things Google Ads related\n\nI have access to these accounts:\n" + clientList + "\n\nJust @ me with whatever you need — like:\n_@Mia how's Barimelts doing this week?_\n_@Mia write some headlines for our new campaign_\n_@Mia check out this landing page and suggest ad copy: [url]_\n\nI've got " + skills.length + " skills loaded so I can go pretty deep on things.",
+            text: "hey! I'm Ema — your paid media AI assistant :wave:\n\nI can help with stuff like:\n- account audits & performance deep dives\n- campaign optimization\n- budget & bidding strategy\n- ad copy, keywords, audiences\n- figuring out why metrics spiked or dropped\n- researching competitors or landing pages\n- and honestly most things Google Ads related\n\nI have access to these accounts:\n" + clientList + "\n\nJust @ me with whatever you need — like:\n_@Ema how's the account doing this week?_\n_@Ema write some headlines for our new campaign_\n_@Ema check out this landing page and suggest ad copy: [url]_\n\nI've got " + skills.length + " skills loaded so I can go pretty deep on things.",
             thread_ts: event.thread_ts || event.ts,
         });
         return;
@@ -1522,7 +1522,7 @@ slack.event("message", async ({ event, say }) => {
 // ── Start ─────────────────────────────────────────────────────
 (async () => {
     try {
-        console.log("Starting Mia v3...");
+        console.log("Starting Ema v3...");
         console.log("");
 
         // Log accounts
@@ -1545,7 +1545,7 @@ slack.event("message", async ({ event, say }) => {
         console.log("");
 
         await slack.start();
-        console.log("Mia v3 is live! Listening for mentions and DMs...");
+        console.log("Ema v3 is live! Listening for mentions and DMs...");
     } catch (err) {
         console.error("Failed to start Mia:", err);
         process.exit(1);
