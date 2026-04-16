@@ -99,6 +99,81 @@ async function addCampaignNegativeKeywords(customerId, campaignResourceName, key
     return await customer.mutateResources(operations);
 }
 
+// Fetch search terms from Google Ads API for a given account.
+// Returns structured rows ready for analysis.
+async function fetchSearchTerms(customerId, dateRange = "LAST_30_DAYS") {
+    try {
+        const customer = getGadsCustomer(customerId);
+        if (!customer) return [];
+        const rows = await customer.query(`
+            SELECT
+                search_term_view.search_term,
+                search_term_view.status,
+                campaign.name,
+                campaign.resource_name,
+                ad_group.name,
+                metrics.cost_micros,
+                metrics.conversions,
+                metrics.conversions_value,
+                metrics.impressions,
+                metrics.clicks
+            FROM search_term_view
+            WHERE segments.date DURING ${dateRange}
+                AND metrics.cost_micros > 1000000
+            ORDER BY metrics.cost_micros DESC
+            LIMIT 1000
+        `);
+        return rows.map(r => ({
+            searchTerm: r.search_term_view.search_term,
+            status: r.search_term_view.status,  // ADDED | EXCLUDED | NONE
+            campaign: r.campaign.name,
+            campaignResourceName: r.campaign.resource_name,
+            adGroup: r.ad_group.name,
+            cost: r.metrics.cost_micros / 1_000_000,
+            conversions: r.metrics.conversions || 0,
+            conversionValue: r.metrics.conversions_value || 0,
+            impressions: r.metrics.impressions || 0,
+            clicks: r.metrics.clicks || 0,
+        }));
+    } catch (err) {
+        console.error("fetchSearchTerms error:", err.message);
+        return [];
+    }
+}
+
+// Format search term rows as CSV that matches what the negative keyword skill expects.
+function formatSearchTermsForMia(rows, dateRange) {
+    const period = dateRange.replace(/_/g, " ").toLowerCase();
+    const header = "search term,campaign,ad group,cost,conversions,conversion value,ROAS,CPA,status";
+    const dataRows = rows.map(r => {
+        const roas = r.cost > 0 && r.conversionValue > 0 ? (r.conversionValue / r.cost).toFixed(2) : "0";
+        const cpa = r.cost > 0 && r.conversions > 0 ? (r.cost / r.conversions).toFixed(2) : "0";
+        return [
+            `"${r.searchTerm}"`,
+            `"${r.campaign}"`,
+            `"${r.adGroup}"`,
+            r.cost.toFixed(2),
+            r.conversions.toFixed(0),
+            r.conversionValue.toFixed(2),
+            roas,
+            cpa,
+            r.status,
+        ].join(",");
+    });
+    return `FILE: Search Terms from Google Ads (${period})\n${header}\n${dataRows.join("\n")}`;
+}
+
+// Parse a date range hint from the user's question.
+// Defaults to LAST_30_DAYS if nothing explicit is mentioned.
+function detectDateRange(question) {
+    const q = question.toLowerCase();
+    if (/last\s*7\s*days|past\s*week|\b7\s*day/.test(q))  return "LAST_7_DAYS";
+    if (/last\s*14\s*days|two\s*weeks|14\s*day/.test(q))  return "LAST_14_DAYS";
+    if (/last\s*60\s*days|60\s*day|two\s*months/.test(q)) return "LAST_60_DAYS";
+    if (/last\s*90\s*days|90\s*day|three\s*months|quarter/.test(q)) return "LAST_90_DAYS";
+    return "LAST_30_DAYS";
+}
+
 // ── Pending Actions ───────────────────────────────────────────
 // When Mia proposes adding negatives, the action is stored here
 // keyed by Slack thread_ts. Expires after 10 minutes.
@@ -1066,6 +1141,25 @@ async function processQuestion(question, account, userId, channelId, event, say)
             const docContents = await Promise.all(docUrls.map(u => readGoogleDoc(u)));
             const parsed = docContents.filter(Boolean);
             if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
+        }
+
+        // Auto-fetch search terms from Google Ads if doing negative keyword analysis and no file uploaded
+        const needsSearchTerms = skillNames.some(s => s.includes("negative"))
+            && slackFiles.length === 0
+            && sheetUrls.length === 0
+            && docUrls.length === 0
+            && gadsClient;
+        if (needsSearchTerms) {
+            await say({ text: "no file attached — pulling search terms directly from Google Ads...", thread_ts: event.thread_ts || event.ts });
+            const dateRange = detectDateRange(question);
+            const searchTermRows = await fetchSearchTerms(account.id, dateRange);
+            if (searchTermRows.length > 0) {
+                const searchTermCsv = formatSearchTermsForMia(searchTermRows, dateRange);
+                fileContext = searchTermCsv + (fileContext ? "\n\n" + fileContext : "");
+                console.log(`Fetched ${searchTermRows.length} search terms for ${account.name} (${dateRange})`);
+            } else {
+                console.log("No search terms returned from Google Ads — Mia will ask for a file upload");
+            }
         }
 
         // If scraping is needed but no URLs given, try to find client website from knowledge
