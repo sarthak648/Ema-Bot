@@ -33,9 +33,14 @@ if (process.env.GOOGLE_ADS_DEVELOPER_TOKEN && process.env.GOOGLE_ADS_CLIENT_ID) 
             client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
             developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
         });
+        console.log("✅ Google Ads API client initialised");
+        console.log("   MCC login ID:", process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || "NOT SET");
+        console.log("   Refresh token set:", !!process.env.GOOGLE_ADS_REFRESH_TOKEN);
     } catch (e) {
-        console.error("Google Ads API init error:", e.message);
+        console.error("❌ Google Ads API init error:", e.message);
     }
+} else {
+    console.warn("⚠️  Google Ads API not initialised — missing GOOGLE_ADS_DEVELOPER_TOKEN or GOOGLE_ADS_CLIENT_ID");
 }
 
 function getGadsCustomer(customerId) {
@@ -54,12 +59,16 @@ async function listCampaigns(customerId) {
     try {
         const customer = getGadsCustomer(customerId);
         if (!customer) return [];
-        const rows = await customer.query(`
+        const queryPromise = customer.query(`
             SELECT campaign.id, campaign.name, campaign.status, campaign.resource_name
             FROM campaign
             WHERE campaign.status != 'REMOVED'
             ORDER BY campaign.name
         `);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Google Ads API timeout after 30s")), 30000)
+        );
+        const rows = await Promise.race([queryPromise, timeoutPromise]);
         return rows.map(r => ({
             id: String(r.campaign.id),
             name: r.campaign.name,
@@ -137,9 +146,12 @@ async function fetchSearchTerms(customerId, filters = {}) {
     } = filters;
     try {
         const customer = getGadsCustomer(customerId);
-        if (!customer) return [];
+        if (!customer) {
+            console.error("fetchSearchTerms: gadsClient not initialised — check GOOGLE_ADS_* env vars");
+            return [];
+        }
         const clicksFilter = minClicks > 0 ? `AND metrics.clicks >= ${minClicks}` : "";
-        const rows = await customer.query(`
+        const queryPromise = customer.query(`
             SELECT
                 search_term_view.search_term,
                 search_term_view.status,
@@ -158,9 +170,14 @@ async function fetchSearchTerms(customerId, filters = {}) {
             ORDER BY metrics.cost_micros DESC
             LIMIT 1000
         `);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Google Ads API timeout after 30s")), 30000)
+        );
+        const rows = await Promise.race([queryPromise, timeoutPromise]);
+        console.log(`fetchSearchTerms: got ${rows.length} rows`);
         return rows.map(r => ({
             searchTerm: r.search_term_view.search_term,
-            status: r.search_term_view.status,  // ADDED | EXCLUDED | NONE
+            status: r.search_term_view.status,
             campaign: r.campaign.name,
             campaignResourceName: r.campaign.resource_name,
             adGroup: r.ad_group.name,
