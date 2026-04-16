@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ override: false });
 const { App } = require("@slack/bolt");
 const Anthropic = require("@anthropic-ai/sdk");
 const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...args));
@@ -31,7 +31,8 @@ function env(key) {
     return val.replace(/^["']|["']$/g, "").trim();
 }
 
-// Debug: log raw values of Google Ads env vars so we can see what Railway is passing
+// Debug: log all env var keys so we can see what Railway is actually injecting
+console.log("ENV KEYS:", Object.keys(process.env).filter(k => k.startsWith("GOOGLE") || k.startsWith("SLACK") || k.startsWith("ANTHROPIC")).join(", "));
 console.log("ENV CHECK — GOOGLE_ADS_DEVELOPER_TOKEN:", JSON.stringify(process.env.GOOGLE_ADS_DEVELOPER_TOKEN));
 console.log("ENV CHECK — GOOGLE_ADS_CLIENT_ID:", JSON.stringify(process.env.GOOGLE_ADS_CLIENT_ID));
 
