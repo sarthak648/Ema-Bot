@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
 const XLSX = require("xlsx");
+const { GoogleAdsApi, enums } = require("google-ads-api");
 
 // ── Core Setup ────────────────────────────────────────────────
 const slack = new App({
@@ -19,6 +20,170 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const WINDSOR_API_KEY = process.env.WINDSOR_API_KEY;
 const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
 const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
+
+// ── Google Ads API ────────────────────────────────────────────
+// MCC setup — one set of credentials covers all client accounts.
+// Set GOOGLE_ADS_LOGIN_CUSTOMER_ID to your MCC account ID.
+
+let gadsClient = null;
+if (process.env.GOOGLE_ADS_DEVELOPER_TOKEN && process.env.GOOGLE_ADS_CLIENT_ID) {
+    try {
+        gadsClient = new GoogleAdsApi({
+            client_id: process.env.GOOGLE_ADS_CLIENT_ID,
+            client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
+            developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+        });
+    } catch (e) {
+        console.error("Google Ads API init error:", e.message);
+    }
+}
+
+function getGadsCustomer(customerId) {
+    if (!gadsClient) return null;
+    const config = {
+        customer_id: String(customerId).replace(/-/g, ""),
+        refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN,
+    };
+    if (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
+        config.login_customer_id = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, "");
+    }
+    return gadsClient.Customer(config);
+}
+
+async function listCampaigns(customerId) {
+    try {
+        const customer = getGadsCustomer(customerId);
+        if (!customer) return [];
+        const rows = await customer.query(`
+            SELECT campaign.id, campaign.name, campaign.status, campaign.resource_name
+            FROM campaign
+            WHERE campaign.status != 'REMOVED'
+            ORDER BY campaign.name
+        `);
+        return rows.map(r => ({
+            id: String(r.campaign.id),
+            name: r.campaign.name,
+            status: r.campaign.status,
+            resourceName: r.campaign.resource_name,
+        }));
+    } catch (err) {
+        console.error("listCampaigns error:", err.message);
+        return [];
+    }
+}
+
+async function addCampaignNegativeKeywords(customerId, campaignResourceName, keywords) {
+    // keywords: [{ text: string, match: "PHRASE" | "EXACT" | "BROAD" }]
+    const customer = getGadsCustomer(customerId);
+    if (!customer) throw new Error("Google Ads API not configured");
+
+    const matchTypeMap = {
+        PHRASE: enums.KeywordMatchType.PHRASE,
+        EXACT: enums.KeywordMatchType.EXACT,
+        BROAD: enums.KeywordMatchType.BROAD,
+    };
+
+    const operations = keywords.map(kw => ({
+        entity: "campaign_criterion",
+        operation: "create",
+        resource: {
+            campaign: campaignResourceName,
+            negative: true,
+            keyword: {
+                text: kw.text,
+                match_type: matchTypeMap[kw.match] || enums.KeywordMatchType.PHRASE,
+            },
+        },
+    }));
+
+    return await customer.mutateResources(operations);
+}
+
+// ── Pending Actions ───────────────────────────────────────────
+// When Mia proposes adding negatives, the action is stored here
+// keyed by Slack thread_ts. Expires after 10 minutes.
+
+const pendingActions = {};
+
+function storePendingAction(threadTs, action) {
+    pendingActions[threadTs] = { ...action, storedAt: Date.now() };
+    setTimeout(() => { delete pendingActions[threadTs]; }, 10 * 60 * 1000);
+}
+
+function getPendingAction(threadTs) {
+    return pendingActions[threadTs] || null;
+}
+
+function clearPendingAction(threadTs) {
+    delete pendingActions[threadTs];
+}
+
+function isConfirmation(text) {
+    const t = text.trim().toLowerCase().replace(/[^a-z\s]/g, "").trim();
+    return /^(yes|yeah|yep|yup|confirm|go ahead|do it|approved|approve|ok|okay|sure|proceed|add them|add it|looks good|sounds good|perfect|do this)$/.test(t);
+}
+
+function isRejection(text) {
+    const t = text.trim().toLowerCase().replace(/[^a-z\s]/g, "").trim();
+    return /^(no|nope|cancel|stop|dont|nevermind|never mind|hold on|wait|skip|abort)$/.test(t);
+}
+
+// Extracts a __GADS_ACTION__....__END_ACTION__ block from Mia's response.
+// Returns the clean text (without the block) and the parsed action object.
+function extractGadsAction(text) {
+    const match = text.match(/\n*__GADS_ACTION__([\s\S]*?)__END_ACTION__\n*/);
+    if (!match) return { text, action: null };
+    try {
+        const action = JSON.parse(match[1].trim());
+        const cleanText = text.replace(/\n*__GADS_ACTION__[\s\S]*?__END_ACTION__\n*/, "").trim();
+        return { text: cleanText, action };
+    } catch (e) {
+        console.error("Failed to parse GADS action:", e.message);
+        return { text: text.replace(/\n*__GADS_ACTION__[\s\S]*?__END_ACTION__\n*/, "").trim(), action: null };
+    }
+}
+
+// Executes a confirmed pending action and posts the result to Slack.
+async function executePendingAction(pending, say, threadTs) {
+    const { action, accountId, accountName } = pending;
+
+    if (action.type !== "add_negatives") {
+        await say({ text: "not sure how to execute that — let Sarthak know", thread_ts: threadTs });
+        return;
+    }
+
+    const campaigns = await listCampaigns(accountId);
+    if (campaigns.length === 0) {
+        await say({ text: "couldn't fetch campaigns from Google Ads — check the API credentials in Railway", thread_ts: threadTs });
+        return;
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const c of action.campaigns) {
+        const campaign = campaigns.find(cam => cam.name.toLowerCase() === c.name.toLowerCase());
+        if (!campaign) {
+            errors.push(`couldn't find campaign "${c.name}" — name might have changed`);
+            continue;
+        }
+        try {
+            await addCampaignNegativeKeywords(accountId, campaign.resourceName, c.keywords);
+            const kwList = c.keywords.map(k => `  - "${k.text}" (${k.match.toLowerCase()})`).join("\n");
+            results.push(`✓ *${campaign.name}* — ${c.keywords.length} negative${c.keywords.length !== 1 ? "s" : ""} added:\n${kwList}`);
+        } catch (err) {
+            errors.push(`*${c.name}*: ${err.message}`);
+        }
+    }
+
+    let reply = results.length > 0
+        ? `done ✓ here's what I added to *${accountName}*:\n\n${results.join("\n\n")}`
+        : "nothing was added";
+
+    if (errors.length > 0) reply += `\n\n⚠️ issues:\n${errors.map(e => `- ${e}`).join("\n")}`;
+
+    await say({ text: reply, thread_ts: threadTs });
+}
 
 // ── Directory Structure ───────────────────────────────────────
 const CHANNEL_SKILLS_DIR = path.join(__dirname, "skills", "channel");
@@ -558,7 +723,7 @@ function formatData(data, accountName) {
 
 // ── Mia's Personality & System Prompt ─────────────────────────
 
-function buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext) {
+function buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns = []) {
     return `You are Mia — a real person on the Webtopia team, not an AI assistant. You're a sharp, warm, emotionally intelligent paid media strategist who genuinely cares about the people she works with and the clients she helps.
 
 HOW YOU TALK:
@@ -592,11 +757,28 @@ ${dataContext !== "No data available for this period." ? "LIVE ACCOUNT DATA:\n" 
 
 ${webContext ? "WEB RESEARCH:\n" + webContext + "\n\n" : ""}
 
-YOUR CAPABILITIES:
+${campaigns.length > 0 ? `GOOGLE ADS CAMPAIGNS (live from API):
+${campaigns.map(c => `- ${c.name} [${c.status}]`).join("\n")}
+
+ADDING NEGATIVE KEYWORDS DIRECTLY TO GOOGLE ADS:
+You can add negative keywords directly to campaigns after the user confirms. When you have specific negatives to recommend:
+1. Present your recommendations clearly grouped by campaign in your response
+2. At the very end of your message add this action block on its own line (exact format, no spaces inside):
+__GADS_ACTION__{"type":"add_negatives","campaigns":[{"name":"EXACT CAMPAIGN NAME AS LISTED ABOVE","keywords":[{"text":"keyword text","match":"PHRASE"}]}]}__END_ACTION__
+
+Rules for the action block:
+- Campaign name must exactly match a name from the GOOGLE ADS CAMPAIGNS list above
+- match must be "PHRASE", "EXACT", or "BROAD" — phrase is the default
+- Include all campaigns in one block as an array — do not write multiple blocks
+- Only include the block when you have specific keywords ready for specific campaigns
+- Do NOT include it for general advice or analysis without specific keyword recommendations
+
+` : ""}YOUR CAPABILITIES:
 - You can pull live ad performance data from Windsor.ai (if data is provided below, use it)
 - You can browse websites and read multiple pages — if web content is provided below, you already did this
 - You can search the web via Google — if search results are provided below, you already did this
 - You can read CSV, Excel, and Google Sheets files — if file content is provided below, use it directly
+- You can add negative keywords directly to Google Ads campaigns — campaigns are listed above when available
 
 WHEN SOMETHING IS MISSING — one line, nothing else:
 - Missing file: "can't see the file, can you re-upload it?" — that's it. No bullet points. No "once I have it I'll...". Stop there.
@@ -799,7 +981,7 @@ async function fetchThreadHistory(channelId, threadTs, currentTs) {
 
 // ── Main AI Call ──────────────────────────────────────────────
 
-async function askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = []) {
+async function askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = [], campaigns = []) {
     const skillContents = skillNames
         .filter(s => s !== "general")
         .map(s => {
@@ -809,7 +991,7 @@ async function askMia(question, skillNames, data, account, clientKnowledge, gree
         .join("\n");
 
     const dataContext = data.length > 0 ? formatData(data, account.name) : "No data available for this period.";
-    const system = buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext);
+    const system = buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns);
 
     const userMessage = greeting
         ? `[First message from this person today — greet them warmly but briefly, like a colleague would. Just a quick "hey!" or "morning!" type thing, then get to their question. Don't make the greeting a big deal.]\n\n${question}`
@@ -911,11 +1093,14 @@ async function processQuestion(question, account, userId, channelId, event, say)
         // Merge file context into web context
         if (fileContext) webContext = fileContext + (webContext ? "\n\n---\n\n" + webContext : "");
 
+        // Fetch campaigns from Google Ads API when doing negative keyword work
+        const needsCampaigns = skillNames.some(s => s.includes("negative"));
+        const campaigns = needsCampaigns ? await listCampaigns(account.id) : [];
+
         // Fetch thread history so Mia knows what's already been discussed
         const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
 
         // Send a "still working" message after 20s so Slack doesn't look frozen on big tasks
-        let stillWorkingTimer = null;
         const stillWorkingMsg = setTimeout(async () => {
             try {
                 await say({ text: "still on it — this one's a big task, almost there...", thread_ts: event.thread_ts || event.ts });
@@ -923,13 +1108,23 @@ async function processQuestion(question, account, userId, channelId, event, say)
         }, 20000);
 
         // Ask Mia
-        const answer = await askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory);
+        const rawAnswer = await askMia(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory, campaigns);
         clearTimeout(stillWorkingMsg);
 
-        await say({
-            text: answer,
-            thread_ts: event.thread_ts || event.ts,
-        });
+        // Extract any Google Ads action block Mia embedded in her response
+        const { text: answer, action } = extractGadsAction(rawAnswer);
+
+        // Store pending action and append confirmation prompt if action was proposed
+        const threadTs = event.thread_ts || event.ts;
+        if (action && campaigns.length > 0) {
+            storePendingAction(threadTs, { action, accountId: account.id, accountName: account.name });
+            await say({
+                text: answer + "\n\nReply *yes* to add these now, or let me know what you'd like to change.",
+                thread_ts: threadTs,
+            });
+        } else {
+            await say({ text: answer, thread_ts: threadTs });
+        }
     } catch (err) {
         console.error("Mia error:", err);
         await say({
@@ -1047,6 +1242,22 @@ slack.event("app_mention", async ({ event, say }) => {
     // If mention has a file but no text, treat it as "analyse this"
     const effectiveQuestion = question || (hasFiles ? "please analyse this file" : "");
 
+    // Check for pending Google Ads action confirmation/rejection first
+    const threadTs = event.thread_ts || event.ts;
+    const pending = getPendingAction(threadTs);
+    if (pending) {
+        if (isConfirmation(effectiveQuestion)) {
+            clearPendingAction(threadTs);
+            await executePendingAction(pending, say, threadTs);
+            return;
+        }
+        if (isRejection(effectiveQuestion)) {
+            clearPendingAction(threadTs);
+            await say({ text: "no problem, cancelled", thread_ts: threadTs });
+            return;
+        }
+    }
+
     // Empty mention with no files — introduce herself
     if (!effectiveQuestion) {
         const unique = getUniqueAccounts();
@@ -1110,6 +1321,22 @@ slack.event("message", async ({ event, say }) => {
 
     const userId = event.user;
     const channelId = event.channel;
+
+    // Check for pending Google Ads action confirmation/rejection first
+    const threadTs = event.thread_ts || event.ts;
+    const pending = getPendingAction(threadTs);
+    if (pending) {
+        if (isConfirmation(effectiveQuestion)) {
+            clearPendingAction(threadTs);
+            await executePendingAction(pending, say, threadTs);
+            return;
+        }
+        if (isRejection(effectiveQuestion)) {
+            clearPendingAction(threadTs);
+            await say({ text: "no problem, cancelled", thread_ts: threadTs });
+            return;
+        }
+    }
 
     // Detect account from question
     const account = detectAccount(effectiveQuestion);
