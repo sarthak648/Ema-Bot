@@ -1529,6 +1529,7 @@ slack.event("message", async ({ event, say }) => {
         clients.forEach(c => console.log("  - " + c));
 
         console.log("\n🔍 Web search: " + (GOOGLE_SEARCH_API_KEY ? "enabled" : "not configured"));
+        console.log("\n📢 Google Ads API: " + (gadsClient ? "✅ connected (MCC: " + (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || "NOT SET") + ")" : "❌ not initialised — check GOOGLE_ADS_DEVELOPER_TOKEN and GOOGLE_ADS_CLIENT_ID"));
         console.log("");
 
         await slack.start();
