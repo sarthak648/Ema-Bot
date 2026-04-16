@@ -31,6 +31,10 @@ function env(key) {
     return val.replace(/^["']|["']$/g, "").trim();
 }
 
+// Debug: log raw values of Google Ads env vars so we can see what Railway is passing
+console.log("ENV CHECK — GOOGLE_ADS_DEVELOPER_TOKEN:", JSON.stringify(process.env.GOOGLE_ADS_DEVELOPER_TOKEN));
+console.log("ENV CHECK — GOOGLE_ADS_CLIENT_ID:", JSON.stringify(process.env.GOOGLE_ADS_CLIENT_ID));
+
 let gadsClient = null;
 if (env("GOOGLE_ADS_DEVELOPER_TOKEN") && env("GOOGLE_ADS_CLIENT_ID")) {
     try {
