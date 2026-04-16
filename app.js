@@ -887,6 +887,7 @@ Rules for the action block:
 - You can search the web via Google — if search results are provided below, you already did this
 - You can read CSV, Excel, and Google Sheets files — if file content is provided below, use it directly
 - You can add negative keywords directly to Google Ads campaigns — campaigns are listed above when available
+- Search term data may be pre-loaded from the Google Ads API — if you see "FILE: Search Terms from Google Ads" in the WEB RESEARCH section, that IS the search term report. Use it immediately and run the full negative keyword analysis without asking for anything.
 
 WHEN SOMETHING IS MISSING — one line, nothing else:
 - Missing file: "can't see the file, can you re-upload it?" — that's it. No bullet points. No "once I have it I'll...". Stop there.
@@ -1185,11 +1186,16 @@ async function processQuestion(question, account, userId, channelId, event, say)
             && gadsClient;
         if (needsSearchTerms) {
             const filters = detectSearchTermFilters(question);
+            console.log(`Fetching search terms for ${account.name} — ${filters.dateRange}, minSpend: ${filters.minSpendMicros / 1_000_000}, minClicks: ${filters.minClicks}`);
             const searchTermRows = await fetchSearchTerms(account.id, filters);
             if (searchTermRows.length > 0) {
                 const searchTermCsv = formatSearchTermsForMia(searchTermRows, filters);
                 fileContext = searchTermCsv + (fileContext ? "\n\n" + fileContext : "");
-                console.log(`Fetched ${searchTermRows.length} search terms for ${account.name} (${filters.dateRange}, minSpend: ${filters.minSpendMicros / 1_000_000}, minClicks: ${filters.minClicks})`);
+                console.log(`Fetched ${searchTermRows.length} search terms for ${account.name}`);
+            } else {
+                console.log(`No search terms returned from Google Ads for ${account.name} — API may not be configured or no data in range`);
+                await say({ text: "couldn't pull search terms from Google Ads — the API might not be connected yet. can you upload a search term export from Google Ads instead?", thread_ts: event.thread_ts || event.ts });
+                return;
             }
         }
 
