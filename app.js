@@ -99,12 +99,46 @@ async function addCampaignNegativeKeywords(customerId, campaignResourceName, key
     return await customer.mutateResources(operations);
 }
 
+// Parse search term filters from the user's question.
+// Supports: date range, min spend, min clicks. All have sensible defaults.
+function detectSearchTermFilters(question) {
+    const q = question.toLowerCase();
+
+    // Date range
+    let dateRange = "LAST_30_DAYS";
+    if (/last\s*7\s*days|past\s*week|\b7\s*day/.test(q))  dateRange = "LAST_7_DAYS";
+    else if (/last\s*14\s*days|two\s*weeks|14\s*day/.test(q))  dateRange = "LAST_14_DAYS";
+    else if (/last\s*60\s*days|60\s*day|two\s*months/.test(q)) dateRange = "LAST_60_DAYS";
+    else if (/last\s*90\s*days|90\s*day|three\s*months|quarter/.test(q)) dateRange = "LAST_90_DAYS";
+
+    // Min spend — "spend > 5", "more than £2", "over $10 spend", default 1
+    let minSpend = 1;
+    const spendMatch = q.match(/(?:spend|cost)\s*(?:>|over|more\s*than|greater\s*than|of)\s*[£$€]?\s*(\d+(?:\.\d+)?)/)
+        || q.match(/[£$€]\s*(\d+(?:\.\d+)?)\s*(?:\+\s*)?(?:spend|cost)/);
+    if (spendMatch) minSpend = parseFloat(spendMatch[1]);
+
+    // Min clicks — "1+ clicks", "at least 2 clicks", "more than 0 clicks", "1 click or more"
+    let minClicks = 0;
+    const clickMatch = q.match(/(\d+)\s*\+\s*clicks?/)
+        || q.match(/(?:at\s*least|more\s*than|over|>)\s*(\d+)\s*clicks?/)
+        || q.match(/(\d+)\s*clicks?\s*or\s*more/);
+    if (clickMatch) minClicks = parseInt(clickMatch[1]);
+
+    return { dateRange, minSpendMicros: Math.round(minSpend * 1_000_000), minClicks };
+}
+
 // Fetch search terms from Google Ads API for a given account.
 // Returns structured rows ready for analysis.
-async function fetchSearchTerms(customerId, dateRange = "LAST_30_DAYS") {
+async function fetchSearchTerms(customerId, filters = {}) {
+    const {
+        dateRange = "LAST_30_DAYS",
+        minSpendMicros = 1_000_000,
+        minClicks = 0,
+    } = filters;
     try {
         const customer = getGadsCustomer(customerId);
         if (!customer) return [];
+        const clicksFilter = minClicks > 0 ? `AND metrics.clicks >= ${minClicks}` : "";
         const rows = await customer.query(`
             SELECT
                 search_term_view.search_term,
@@ -119,7 +153,8 @@ async function fetchSearchTerms(customerId, dateRange = "LAST_30_DAYS") {
                 metrics.clicks
             FROM search_term_view
             WHERE segments.date DURING ${dateRange}
-                AND metrics.cost_micros > 1000000
+                AND metrics.cost_micros >= ${minSpendMicros}
+                ${clicksFilter}
             ORDER BY metrics.cost_micros DESC
             LIMIT 1000
         `);
@@ -142,9 +177,12 @@ async function fetchSearchTerms(customerId, dateRange = "LAST_30_DAYS") {
 }
 
 // Format search term rows as CSV that matches what the negative keyword skill expects.
-function formatSearchTermsForMia(rows, dateRange) {
+function formatSearchTermsForMia(rows, filters) {
+    const { dateRange, minSpendMicros, minClicks } = filters;
     const period = dateRange.replace(/_/g, " ").toLowerCase();
-    const header = "search term,campaign,ad group,cost,conversions,conversion value,ROAS,CPA,status";
+    const spendLabel = `min spend: ${(minSpendMicros / 1_000_000).toFixed(2)}`;
+    const clicksLabel = minClicks > 0 ? `, min clicks: ${minClicks}` : "";
+    const header = "search term,campaign,ad group,cost,conversions,conversion value,ROAS,CPA,clicks,status";
     const dataRows = rows.map(r => {
         const roas = r.cost > 0 && r.conversionValue > 0 ? (r.conversionValue / r.cost).toFixed(2) : "0";
         const cpa = r.cost > 0 && r.conversions > 0 ? (r.cost / r.conversions).toFixed(2) : "0";
@@ -157,21 +195,16 @@ function formatSearchTermsForMia(rows, dateRange) {
             r.conversionValue.toFixed(2),
             roas,
             cpa,
+            r.clicks,
             r.status,
         ].join(",");
     });
-    return `FILE: Search Terms from Google Ads (${period})\n${header}\n${dataRows.join("\n")}`;
+    return `FILE: Search Terms from Google Ads (${period}, ${spendLabel}${clicksLabel})\n${header}\n${dataRows.join("\n")}`;
 }
 
-// Parse a date range hint from the user's question.
-// Defaults to LAST_30_DAYS if nothing explicit is mentioned.
+// Keep detectDateRange for backwards compat (used elsewhere)
 function detectDateRange(question) {
-    const q = question.toLowerCase();
-    if (/last\s*7\s*days|past\s*week|\b7\s*day/.test(q))  return "LAST_7_DAYS";
-    if (/last\s*14\s*days|two\s*weeks|14\s*day/.test(q))  return "LAST_14_DAYS";
-    if (/last\s*60\s*days|60\s*day|two\s*months/.test(q)) return "LAST_60_DAYS";
-    if (/last\s*90\s*days|90\s*day|three\s*months|quarter/.test(q)) return "LAST_90_DAYS";
-    return "LAST_30_DAYS";
+    return detectSearchTermFilters(question).dateRange;
 }
 
 // ── Pending Actions ───────────────────────────────────────────
@@ -1143,22 +1176,20 @@ async function processQuestion(question, account, userId, channelId, event, say)
             if (parsed.length > 0) fileContext += (fileContext ? "\n\n" : "") + parsed.join("\n\n");
         }
 
-        // Auto-fetch search terms from Google Ads if doing negative keyword analysis and no file uploaded
+        // Auto-fetch search terms from Google Ads if doing negative keyword analysis and no file uploaded.
+        // Silently fetches — no message to user. Respects filters from the question (date range, min spend, min clicks).
         const needsSearchTerms = skillNames.some(s => s.includes("negative"))
             && slackFiles.length === 0
             && sheetUrls.length === 0
             && docUrls.length === 0
             && gadsClient;
         if (needsSearchTerms) {
-            await say({ text: "no file attached — pulling search terms directly from Google Ads...", thread_ts: event.thread_ts || event.ts });
-            const dateRange = detectDateRange(question);
-            const searchTermRows = await fetchSearchTerms(account.id, dateRange);
+            const filters = detectSearchTermFilters(question);
+            const searchTermRows = await fetchSearchTerms(account.id, filters);
             if (searchTermRows.length > 0) {
-                const searchTermCsv = formatSearchTermsForMia(searchTermRows, dateRange);
+                const searchTermCsv = formatSearchTermsForMia(searchTermRows, filters);
                 fileContext = searchTermCsv + (fileContext ? "\n\n" + fileContext : "");
-                console.log(`Fetched ${searchTermRows.length} search terms for ${account.name} (${dateRange})`);
-            } else {
-                console.log("No search terms returned from Google Ads — Mia will ask for a file upload");
+                console.log(`Fetched ${searchTermRows.length} search terms for ${account.name} (${filters.dateRange}, minSpend: ${filters.minSpendMicros / 1_000_000}, minClicks: ${filters.minClicks})`);
             }
         }
 
