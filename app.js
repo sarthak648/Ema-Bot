@@ -25,17 +25,23 @@ const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
 // MCC setup — one set of credentials covers all client accounts.
 // Set GOOGLE_ADS_LOGIN_CUSTOMER_ID to your MCC account ID.
 
+// Strip surrounding quotes Railway sometimes wraps around env var values
+function env(key) {
+    const val = process.env[key] || "";
+    return val.replace(/^["']|["']$/g, "").trim();
+}
+
 let gadsClient = null;
-if (process.env.GOOGLE_ADS_DEVELOPER_TOKEN && process.env.GOOGLE_ADS_CLIENT_ID) {
+if (env("GOOGLE_ADS_DEVELOPER_TOKEN") && env("GOOGLE_ADS_CLIENT_ID")) {
     try {
         gadsClient = new GoogleAdsApi({
-            client_id: process.env.GOOGLE_ADS_CLIENT_ID,
-            client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
-            developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+            client_id: env("GOOGLE_ADS_CLIENT_ID"),
+            client_secret: env("GOOGLE_ADS_CLIENT_SECRET"),
+            developer_token: env("GOOGLE_ADS_DEVELOPER_TOKEN"),
         });
         console.log("✅ Google Ads API client initialised");
-        console.log("   MCC login ID:", process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || "NOT SET");
-        console.log("   Refresh token set:", !!process.env.GOOGLE_ADS_REFRESH_TOKEN);
+        console.log("   MCC login ID:", env("GOOGLE_ADS_LOGIN_CUSTOMER_ID") || "NOT SET");
+        console.log("   Refresh token set:", !!env("GOOGLE_ADS_REFRESH_TOKEN"));
     } catch (e) {
         console.error("❌ Google Ads API init error:", e.message);
     }
@@ -47,10 +53,11 @@ function getGadsCustomer(customerId) {
     if (!gadsClient) return null;
     const config = {
         customer_id: String(customerId).replace(/-/g, ""),
-        refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN,
+        refresh_token: env("GOOGLE_ADS_REFRESH_TOKEN"),
     };
-    if (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
-        config.login_customer_id = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, "");
+    const loginId = env("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
+    if (loginId) {
+        config.login_customer_id = loginId.replace(/-/g, "");
     }
     return gadsClient.Customer(config);
 }
