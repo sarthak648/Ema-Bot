@@ -408,7 +408,7 @@ async function detectClientFromChannel(channelId) {
 // ── Skill Discovery ─────────────────────────────────────────
 // Structure:
 //   skills/channel/   ← platform/strategy skills (google-ads-*.md, meta-ads-*.md, etc.)
-//   skills/clients/   ← client knowledge files (barimelts.md, clientb.md, etc.)
+//   skills/clients/   ← client knowledge files (e.g. agencyname.md, clientname.md)
 //
 // How it works:
 // 1. Channel skills = the expertise (how to do things)
@@ -483,7 +483,7 @@ function loadClientKnowledge(clientName) {
         }
     }
 
-    // Legacy fallback: root-level file like barimelts-knowledge.md
+    // Legacy fallback: root-level file like clientname-knowledge.md
     const legacyFile = path.join(__dirname, cleanName + "-knowledge.md");
     if (fs.existsSync(legacyFile)) return fs.readFileSync(legacyFile, "utf-8");
 
@@ -1155,15 +1155,17 @@ async function processQuestion(question, account, userId, channelId, event, say)
     const greeting = shouldGreet(userId);
     const intent = await detectIntent(question);
 
-    // Show a natural "thinking" message
-    const thinkingMessages = [
-        "Let me pull that up for *" + account.name + "*...",
-        "On it, checking *" + account.name + "* now...",
-        "Looking into this for *" + account.name + "*...",
-        "Give me a sec, pulling *" + account.name + "* data...",
-    ];
-    const thinkingMsg = thinkingMessages[Math.floor(Math.random() * thinkingMessages.length)];
-    await say({ text: thinkingMsg, thread_ts: event.thread_ts || event.ts });
+    // Show a thinking message only when actually pulling data or doing research
+    if (intent.needsData || intent.needsWebSearch || intent.needsScrape) {
+        const thinkingMessages = [
+            "Let me pull that up for *" + account.name + "*...",
+            "On it, checking *" + account.name + "* now...",
+            "Looking into this for *" + account.name + "*...",
+            "Give me a sec, pulling *" + account.name + "* data...",
+        ];
+        const thinkingMsg = thinkingMessages[Math.floor(Math.random() * thinkingMessages.length)];
+        await say({ text: thinkingMsg, thread_ts: event.thread_ts || event.ts });
+    }
 
     try {
         // Run independent tasks in parallel
