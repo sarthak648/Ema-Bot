@@ -7,7 +7,7 @@ This folder contains skills for ad platforms and marketing channels.
 1. Create a new `.md` file in this folder
 2. Name it descriptively: `google-ads-bidding.md`, `meta-ads-audiences.md`, etc.
 3. Start the file with a clear heading describing what the skill is about
-4. Commit — Mia auto-discovers new files, no code changes needed
+4. Commit — Ema auto-discovers new files, no code changes needed
 
 ## Naming Convention
 

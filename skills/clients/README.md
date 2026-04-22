@@ -1,12 +1,12 @@
 # Client Skills (Client Knowledge Base)
 
-This folder contains client-specific knowledge files. Mia loads these alongside platform skills to give client-aware answers.
+This folder contains client-specific knowledge files. Ema loads these alongside platform skills to give client-aware answers.
 
 ## How to add a new client
 
-1. Create a new `.md` file named after the client: `barimelts.md`, `clientname.md`
+1. Create a new `.md` file named after the client: `clientname.md`
 2. Include: brand overview, products, audience, compliance rules, ad account IDs, brand voice
-3. Commit — Mia auto-discovers and loads client knowledge, no code changes needed
+3. Commit — Ema auto-discovers and loads client knowledge, no code changes needed
 
 ## What to include in a client file
 
@@ -21,9 +21,5 @@ This folder contains client-specific knowledge files. Mia loads these alongside 
 
 ## Important
 
-The file name must match the client name in the ACCOUNTS env variable (lowercased, alphanumeric only).
-Example: If ACCOUNTS has "Barimelts:746-735-8073", the file should be `barimelts.md`
-
-## Current Clients
-
-- Barimelts: Currently at `/barimelts-knowledge.md` in root (backward compatible)
+The file name must match the client name (lowercased, alphanumeric only).
+Example: For a client called "Lifestyle Gift Cards", the file should be `lifestylegiftcards.md`

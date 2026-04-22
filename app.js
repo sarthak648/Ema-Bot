@@ -237,7 +237,7 @@ function detectDateRange(question) {
 }
 
 // ── Pending Actions ───────────────────────────────────────────
-// When Mia proposes adding negatives, the action is stored here
+// When Ema proposes adding negatives, the action is stored here
 // keyed by Slack thread_ts. Expires after 10 minutes.
 
 const pendingActions = {};
@@ -265,7 +265,7 @@ function isRejection(text) {
     return /^(no|nope|cancel|stop|dont|nevermind|never mind|hold on|wait|skip|abort)$/.test(t);
 }
 
-// Extracts a __GADS_ACTION__....__END_ACTION__ block from Mia's response.
+// Extracts a __GADS_ACTION__....__END_ACTION__ block from Ema's response.
 // Returns the clean text (without the block) and the parsed action object.
 function extractGadsAction(text) {
     const match = text.match(/\n*__GADS_ACTION__([\s\S]*?)__END_ACTION__\n*/);
@@ -328,7 +328,7 @@ const CLIENT_SKILLS_DIR = path.join(__dirname, "skills", "clients");
 const LEGACY_SKILLS_DIR = path.join(__dirname, "skills");
 
 // ── Greeting Memory ───────────────────────────────────────────
-// Tracks last greeting per user per day so Mia greets once per day
+// Tracks last greeting per user per day so Ema greets once per day
 const greetingMemory = {};
 
 function shouldGreet(userId) {
@@ -339,7 +339,7 @@ function shouldGreet(userId) {
 }
 
 // ── MCC Account Discovery ─────────────────────────────────────
-// Fetches all client accounts from the MCC — same approach as Mia.
+// Fetches all client accounts from the MCC — same approach that works for MCC.
 // Falls back to ACCOUNTS env var if MCC is unavailable.
 
 let mccAccountsCache = null;
@@ -652,7 +652,7 @@ async function searchWeb(query, numResults = 5) {
 // ── Website Crawler ──────────────────────────────────────────
 // Crawls a website — starts from the given URL, discovers internal links,
 // and scrapes key pages to build a full picture of the brand/product.
-// Used for ad copy creation so Mia understands the full offering.
+// Used for ad copy creation so Ema understands the full offering.
 
 async function scrapeSinglePage(url) {
     try {
@@ -934,7 +934,7 @@ function formatData(data, accountName) {
     return out;
 }
 
-// ── Mia's Personality & System Prompt ─────────────────────────
+// ── Ema's Personality & System Prompt ─────────────────────────
 
 function buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns = []) {
     return `You are Ema — a real person on the team, not an AI assistant. You're a sharp, warm, emotionally intelligent paid media strategist who genuinely cares about the people she works with and the clients she helps.
@@ -1148,7 +1148,7 @@ function formatFileContent(csvText, filename) {
 }
 
 // ── Thread History ────────────────────────────────────────────
-// Fetches previous messages from a Slack thread so Mia has full conversation context.
+// Fetches previous messages from a Slack thread so Ema has full conversation context.
 // Only runs when the current message is a reply inside an existing thread.
 
 async function fetchThreadHistory(channelId, threadTs, currentTs) {
@@ -1211,7 +1211,7 @@ async function askEma(question, skillNames, data, account, clientKnowledge, gree
         ? `[First message from this person today — greet them warmly but briefly, like a colleague would. Just a quick "hey!" or "morning!" type thing, then get to their question. Don't make the greeting a big deal.]\n\n${question}`
         : question;
 
-    // Include full thread history so Mia knows what was already discussed
+    // Include full thread history so Ema knows what was already discussed
     const messages = threadHistory.length > 0
         ? [...threadHistory, { role: "user", content: userMessage }]
         : [{ role: "user", content: userMessage }];
@@ -1345,11 +1345,11 @@ async function processQuestion(question, account, userId, channelId, event, say)
             } catch (_) {}
         }, 20000);
 
-        // Ask Mia
+        // Ask Ema
         const rawAnswer = await askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory, campaigns);
         clearTimeout(stillWorkingMsg);
 
-        // Extract any Google Ads action block Mia embedded in her response
+        // Extract any Google Ads action block Ema embedded in her response
         const { text: answer, action } = extractGadsAction(rawAnswer);
 
         // Store pending action and append confirmation prompt if action was proposed
@@ -1364,7 +1364,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
             await say({ text: answer, thread_ts: threadTs });
         }
     } catch (err) {
-        console.error("Mia error:", err);
+        console.error("Ema error:", err);
         await say({
             text: "hmm something broke on my end — " + err.message + "\nlet me know if it keeps happening",
             thread_ts: event.thread_ts || event.ts,
@@ -1444,7 +1444,7 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
         // Fetch thread history so Mia knows what's already been discussed
         const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
 
-        // Include full thread history so Mia has conversation context
+        // Include full thread history so Ema has conversation context
         const messages = threadHistory.length > 0
             ? [...threadHistory, { role: "user", content: userMessage }]
             : [{ role: "user", content: userMessage }];
@@ -1461,7 +1461,7 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
             thread_ts: event.thread_ts || event.ts,
         });
     } catch (err) {
-        console.error("Mia error:", err);
+        console.error("Ema error:", err);
         await say({
             text: "hmm something broke — " + err.message,
             thread_ts: event.thread_ts || event.ts,
@@ -1469,7 +1469,7 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
     }
 }
 
-// ── Slack Event: @Mia Mentions ───────────────────────────────
+// ── Slack Event: @Ema Mentions ───────────────────────────────
 
 slack.event("app_mention", async ({ event, say }) => {
     const question = event.text.replace(/<@[A-Z0-9]+>/g, "").trim();
@@ -1620,7 +1620,7 @@ slack.event("message", async ({ event, say }) => {
         await slack.start();
         console.log("Ema v3 is live! Listening for mentions and DMs...");
     } catch (err) {
-        console.error("Failed to start Mia:", err);
+        console.error("Failed to start Ema:", err);
         process.exit(1);
     }
 })();
