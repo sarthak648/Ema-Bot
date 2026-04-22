@@ -355,11 +355,9 @@ async function fetchMCCAccounts() {
     try {
         const loginId = env("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
         if (!loginId) return [];
-        const customer = gadsClient.Customer({
-            customer_id: loginId.replace(/-/g, ""),
-            refresh_token: env("GOOGLE_ADS_REFRESH_TOKEN"),
-            login_customer_id: loginId.replace(/-/g, ""),
-        });
+        // Use the same credential pattern as getGadsCustomer — query MCC using MCC ID as customer_id
+        const customer = getGadsCustomer(loginId);
+        if (!customer) return [];
         const rows = await customer.query(`
             SELECT
                 customer_client.descriptive_name,
