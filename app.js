@@ -381,6 +381,8 @@ async function listMccAccounts() {
         return accounts;
     } catch (err) {
         console.error("listMccAccounts error:", err.message);
+        if (err.errors) console.error("listMccAccounts details:", JSON.stringify(err.errors));
+        if (err.code) console.error("listMccAccounts code:", err.code);
         return mccAccountsCache || [];
     }
 }
