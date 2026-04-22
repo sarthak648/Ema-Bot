@@ -338,68 +338,88 @@ function shouldGreet(userId) {
     return true;
 }
 
-// ── Account Management ────────────────────────────────────────
-function loadAccounts() {
-    const ACCOUNTS = {};
-    const raw = process.env.ACCOUNTS || "ClientName:000-000-0000";
-    raw.split(",").forEach(entry => {
-        const parts = entry.trim().split(":");
-        if (parts.length < 2) return;
-        const name = parts[0].trim();
-        const id = parts.slice(1).join(":").trim();
-        if (!name || !id) return;
-        const keys = [
-            name.toLowerCase().replace(/[^a-z0-9]/g, ""),
-            ...name.toLowerCase().split(/[\s&,_-]+/).filter(w => w.length > 2),
-        ];
-        [...new Set(keys)].forEach(key => { ACCOUNTS[key] = { id, name }; });
-    });
-    return ACCOUNTS;
-}
+// ── MCC Account Discovery ─────────────────────────────────────
+// Automatically fetches all client accounts from the MCC so Ema
+// can detect the right account from channel name or question context.
+// No manual ACCOUNTS env var needed.
 
-const ACCOUNTS = loadAccounts();
+let mccAccountsCache = null;
+let mccAccountsCachedAt = 0;
+const MCC_CACHE_TTL = 10 * 60 * 1000; // refresh every 10 minutes
 
-function getUniqueAccounts() {
-    const seen = new Set();
-    return Object.values(ACCOUNTS).filter(a => {
-        if (seen.has(a.id)) return false;
-        seen.add(a.id);
-        return true;
-    });
-}
-
-function detectAccount(question) {
-    const q = question.toLowerCase().replace(/[^a-z0-9\s]/g, "");
-    for (const [key, account] of Object.entries(ACCOUNTS)) {
-        if (q.includes(key)) return account;
+async function fetchMCCAccounts() {
+    if (mccAccountsCache && (Date.now() - mccAccountsCachedAt) < MCC_CACHE_TTL) {
+        return mccAccountsCache;
     }
-    const unique = getUniqueAccounts();
-    if (unique.length === 1) return unique[0];
+    if (!gadsClient) return [];
+    try {
+        const loginId = env("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
+        if (!loginId) return [];
+        const customer = gadsClient.Customer({
+            customer_id: loginId.replace(/-/g, ""),
+            refresh_token: env("GOOGLE_ADS_REFRESH_TOKEN"),
+            login_customer_id: loginId.replace(/-/g, ""),
+        });
+        const rows = await customer.query(`
+            SELECT
+                customer_client.descriptive_name,
+                customer_client.id,
+                customer_client.manager,
+                customer_client.status
+            FROM customer_client
+            WHERE customer_client.level = 1
+            AND customer_client.status = 'ENABLED'
+            AND customer_client.manager = false
+        `);
+        mccAccountsCache = rows.map(r => ({
+            id: String(r.customer_client.id),
+            name: r.customer_client.descriptive_name,
+        }));
+        mccAccountsCachedAt = Date.now();
+        console.log(`✅ MCC accounts (${mccAccountsCache.length}): ${mccAccountsCache.map(a => a.name).join(", ")}`);
+        return mccAccountsCache;
+    } catch (err) {
+        console.error("fetchMCCAccounts error:", err.message);
+        return [];
+    }
+}
+
+// Fuzzy match a text string against MCC account names.
+// Checks full name and individual words (min 3 chars).
+function matchAccountByText(text, accounts) {
+    const q = text.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+    for (const account of accounts) {
+        const fullName = account.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const words = account.name.toLowerCase().split(/[\s&,_-]+/).filter(w => w.length > 2);
+        if (q.includes(fullName)) return account;
+        for (const word of words) {
+            if (q.includes(word)) return account;
+        }
+    }
     return null;
 }
 
-// ── Channel-to-Client Mapping ─────────────────────────────────
-function loadChannelMap() {
-    const map = {};
-    const raw = process.env.CHANNEL_MAP || "";
-    raw.split(",").forEach(entry => {
-        const [channelId, clientName] = entry.trim().split(":");
-        if (channelId && clientName) map[channelId.trim()] = clientName.trim();
-    });
-    return map;
+// Detect account from question text — checks MCC first, falls back to ACCOUNTS env var.
+async function detectAccount(question) {
+    // Try MCC accounts first
+    const mccAccounts = await fetchMCCAccounts();
+    if (mccAccounts.length > 0) {
+        const match = matchAccountByText(question, mccAccounts);
+        if (match) return match;
+        if (mccAccounts.length === 1) return mccAccounts[0];
+    }
+    return null;
 }
 
-const CHANNEL_MAP = loadChannelMap();
-
-async function detectClientFromChannel(channelId) {
-    if (CHANNEL_MAP[channelId]) return CHANNEL_MAP[channelId];
+// Detect account from Slack channel name — matches channel name against MCC account names.
+async function detectAccountFromChannel(channelId) {
     try {
         const info = await slack.client.conversations.info({ channel: channelId });
         const channelName = (info.channel.name || "").toLowerCase();
-        for (const account of getUniqueAccounts()) {
-            if (channelName.includes(account.name.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
-                return account.name;
-            }
+        const mccAccounts = await fetchMCCAccounts();
+        if (mccAccounts.length > 0) {
+            const match = matchAccountByText(channelName, mccAccounts);
+            if (match) return match;
         }
     } catch (e) { /* channel info not available */ }
     return null;
@@ -1422,8 +1442,10 @@ slack.event("app_mention", async ({ event, say }) => {
 
     // Empty mention with no files — introduce herself
     if (!effectiveQuestion) {
-        const unique = getUniqueAccounts();
-        const clientList = unique.map(a => "- " + a.name).join("\n");
+        const mccAccounts = await fetchMCCAccounts();
+        const clientList = mccAccounts.length > 0
+            ? mccAccounts.map(a => "- " + a.name).join("\n")
+            : "- (no accounts connected yet)";
         const skills = getAllSkills();
         await say({
             text: "hey! I'm Ema — your paid media AI assistant :wave:\n\nI can help with stuff like:\n- account audits & performance deep dives\n- campaign optimization\n- budget & bidding strategy\n- ad copy, keywords, audiences\n- figuring out why metrics spiked or dropped\n- researching competitors or landing pages\n- and honestly most things Google Ads related\n\nI have access to these accounts:\n" + clientList + "\n\nJust @ me with whatever you need — like:\n_@Ema how's the account doing this week?_\n_@Ema write some headlines for our new campaign_\n_@Ema check out this landing page and suggest ad copy: [url]_\n\nI've got " + skills.length + " skills loaded so I can go pretty deep on things.",
@@ -1432,30 +1454,20 @@ slack.event("app_mention", async ({ event, say }) => {
         return;
     }
 
-    // Detect account
-    const account = detectAccount(effectiveQuestion);
+    // Detect account — first from question text, then from channel name
+    let account = await detectAccount(effectiveQuestion);
+    if (!account) account = await detectAccountFromChannel(channelId);
 
     if (!account) {
-        // Try channel context
-        const channelClient = await detectClientFromChannel(channelId);
-        if (channelClient) {
-            const channelAccount = detectAccount(channelClient);
-            if (channelAccount) {
-                await processQuestion(effectiveQuestion, channelAccount, userId, channelId, event, say);
-                return;
-            }
-        }
-
         // Check if this is a general question that doesn't need account data
         const intent = await detectIntent(effectiveQuestion);
         if (!intent.needsData) {
-            // General question — answer without account data
             await processGeneralQuestion(effectiveQuestion, userId, channelId, event, say);
             return;
         }
 
-        const unique = getUniqueAccounts();
-        const clientList = unique.map(a => a.name).join(", ");
+        const mccAccounts = await fetchMCCAccounts();
+        const clientList = mccAccounts.map(a => a.name).join(", ");
         await say({
             text: "hey which account are you asking about? I've got: *" + clientList + "*\njust drop the name in your question and I'll pull everything up",
             thread_ts: event.thread_ts || event.ts,
@@ -1500,8 +1512,8 @@ slack.event("message", async ({ event, say }) => {
         }
     }
 
-    // Detect account from question
-    const account = detectAccount(effectiveQuestion);
+    // Detect account from question text
+    const account = await detectAccount(effectiveQuestion);
 
     if (account) {
         await processQuestion(effectiveQuestion, account, userId, channelId, event, say);
@@ -1509,8 +1521,8 @@ slack.event("message", async ({ event, say }) => {
         // Check if they need account data or it's a general question
         const intent = await detectIntent(effectiveQuestion);
         if (intent.needsData) {
-            const unique = getUniqueAccounts();
-            const clientList = unique.map(a => a.name).join(", ");
+            const mccAccounts = await fetchMCCAccounts();
+            const clientList = mccAccounts.map(a => a.name).join(", ");
             await say({
                 text: "which account should I look at? I've got: *" + clientList + "*",
                 thread_ts: event.thread_ts || event.ts,
