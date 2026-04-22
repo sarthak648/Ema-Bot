@@ -1539,9 +1539,9 @@ slack.event("message", async ({ event, say }) => {
         console.log("Starting Ema v3...");
         console.log("");
 
-        // Log accounts
-        const unique = getUniqueAccounts();
-        console.log("📋 Accounts (" + unique.length + "):");
+        // Log accounts from MCC
+        const unique = await fetchMCCAccounts();
+        console.log("📋 MCC Accounts (" + unique.length + "):");
         unique.forEach(a => console.log("  - " + a.name + " (ID: " + a.id + ")"));
 
         // Log channel skills (expertise)
