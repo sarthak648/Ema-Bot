@@ -501,11 +501,22 @@ const pendingActions = {};
 function buildKeywordIndex(action) {
     const index = {};
     let i = 0;
+
+    // Deduplicate negative keywords — same text+match can be suggested for multiple campaigns.
+    // Group them into one entry with a campaigns[] array so the modal shows each term once.
+    const negMap = {};
     for (const c of (action.campaigns || [])) {
         for (const kw of (c.keywords || [])) {
-            index[`kw${i++}`] = { type: "negative", text: kw.text, match: kw.match, campaign: c.name };
+            const key = `${kw.text}|||${kw.match}`;
+            if (!negMap[key]) negMap[key] = { text: kw.text, match: kw.match, campaigns: [] };
+            if (!negMap[key].campaigns.includes(c.name)) negMap[key].campaigns.push(c.name);
         }
     }
+    for (const { text, match, campaigns } of Object.values(negMap)) {
+        index[`kw${i++}`] = { type: "negative", text, match, campaigns };
+    }
+
+    // Positive keywords stay per ad group
     for (const ag of (action.adGroups || [])) {
         for (const kw of (ag.keywords || [])) {
             index[`kw${i++}`] = { type: "positive", text: kw.text, match: kw.match, campaignName: ag.campaignName, adGroupName: ag.adGroupName };
@@ -2007,38 +2018,39 @@ function buildKeywordReviewModal(accountName, keywordIndex, enabledCampaigns) {
     const negEntries = entries.filter(([, v]) => v.type === "negative");
     const posEntries = entries.filter(([, v]) => v.type === "positive");
 
-    // Campaign options shared across every keyword dropdown
-    const campaignOptions = enabledCampaigns.slice(0, 50).map(c => ({
-        text: { type: "plain_text", text: c.name.substring(0, 75) },
-        value: c.resourceName,
-    }));
+    // Campaign options: "All campaigns" first, then each individual campaign
+    const allCampaignOption = {
+        text: { type: "plain_text", text: "All campaigns" },
+        value: "all_campaigns",
+    };
+    const campaignOptions = [
+        allCampaignOption,
+        ...enabledCampaigns.slice(0, 49).map(c => ({
+            text: { type: "plain_text", text: c.name.substring(0, 75) },
+            value: c.resourceName,
+        })),
+    ];
 
     // ── Negative keywords ─────────────────────────────────────────────────────
     if (negEntries.length > 0) {
         blocks.push({
             type: "section",
             block_id: "neg_header",
-            text: { type: "mrkdwn", text: "*Negative Keywords*\nFor each keyword choose where to add it. Default is the suggested campaign — change to *All campaigns* to add everywhere, or pick a specific campaign from the list." },
+            text: { type: "mrkdwn", text: "*Negative Keywords*\nEach keyword appears once. Select which campaigns to add it to — pick one, multiple, or *All campaigns*. Leave blank to skip." },
         });
 
-        const MAX_NEGS = 85;
+        const MAX_NEGS = 88;
         const negToRender = negEntries.slice(0, MAX_NEGS);
         const negTruncated = negEntries.length > MAX_NEGS;
 
         for (const [id, kw] of negToRender) {
-            const suggestedLabel = `Suggested: ${kw.campaign}`.substring(0, 75);
-            const suggestedOption = {
-                text: { type: "plain_text", text: suggestedLabel },
-                value: "suggested",
-            };
-            const dontAddOption = {
-                text: { type: "plain_text", text: "Don't add" },
-                value: "dont_add",
-            };
-            const allOption = {
-                text: { type: "plain_text", text: "All campaigns" },
-                value: "all_campaigns",
-            };
+            // Pre-select the suggested campaigns by matching their resourceNames
+            const initialOptions = (kw.campaigns || [])
+                .map(name => {
+                    const camp = enabledCampaigns.find(c => c.name.toLowerCase() === name.toLowerCase());
+                    return camp ? { text: { type: "plain_text", text: camp.name.substring(0, 75) }, value: camp.resourceName } : null;
+                })
+                .filter(Boolean);
 
             blocks.push({
                 type: "input",
@@ -2046,11 +2058,11 @@ function buildKeywordReviewModal(accountName, keywordIndex, enabledCampaigns) {
                 optional: true,
                 label: { type: "plain_text", text: `"${kw.text}" (${kw.match.toLowerCase()})`.substring(0, 2000) },
                 element: {
-                    type: "static_select",
-                    action_id: "campaign_for_kw",
+                    type: "multi_static_select",
+                    action_id: "campaigns_for_kw",
                     placeholder: { type: "plain_text", text: "Don't add" },
-                    options: [dontAddOption, suggestedOption, allOption, ...campaignOptions],
-                    initial_option: suggestedOption,
+                    options: campaignOptions,
+                    ...(initialOptions.length > 0 ? { initial_options: initialOptions } : {}),
                 },
             });
         }
@@ -2164,18 +2176,17 @@ slack.view("keyword_review_modal", async ({ ack, view, client }) => {
         const kw = kwIndex[blockId];
 
         if (kw && kw.type === "negative") {
-            // Each negative keyword block has a static_select (action_id: campaign_for_kw)
-            const selected = blockVals.campaign_for_kw?.selected_option;
-            if (!selected || selected.value === "dont_add") continue;
+            // Each negative keyword block has a multi_static_select (action_id: campaigns_for_kw)
+            const selectedOpts = blockVals.campaigns_for_kw?.selected_options || [];
+            if (selectedOpts.length === 0) continue; // blank = Don't add
 
-            if (selected.value === "suggested") {
-                addToNegMap(kw.campaign, kw);
-            } else if (selected.value === "all_campaigns") {
-                for (const c of enabledCampaigns) addToNegMap(c.name, kw);
-            } else {
-                // value is a campaign resourceName
-                const camp = enabledCampaigns.find(c => c.resourceName === selected.value);
-                if (camp) addToNegMap(camp.name, kw);
+            for (const opt of selectedOpts) {
+                if (opt.value === "all_campaigns") {
+                    for (const c of enabledCampaigns) addToNegMap(c.name, kw);
+                } else {
+                    const camp = enabledCampaigns.find(c => c.resourceName === opt.value);
+                    if (camp) addToNegMap(camp.name, kw);
+                }
             }
         } else if (blockId.startsWith("pos_chunk_")) {
             // Positive keyword blocks use checkboxes
