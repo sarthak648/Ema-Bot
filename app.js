@@ -93,6 +93,36 @@ async function listCampaigns(customerId) {
     }
 }
 
+// Pulls the website URL directly from the account's active ads final_urls.
+// This is the most reliable source — no manual config needed.
+async function fetchAccountWebsite(customerId) {
+    try {
+        const customer = getGadsCustomer(customerId);
+        if (!customer) return null;
+        const rows = await customer.query(`
+            SELECT ad_group_ad.ad.final_urls
+            FROM ad_group_ad
+            WHERE ad_group_ad.status = 'ENABLED'
+              AND campaign.status = 'ENABLED'
+            LIMIT 10
+        `);
+        for (const r of rows) {
+            const urls = r.ad_group_ad?.ad?.final_urls || [];
+            for (const u of urls) {
+                try {
+                    const parsed = new URL(u);
+                    const base = parsed.origin;
+                    console.log(`fetchAccountWebsite: found ${base} for customer ${customerId}`);
+                    return base;
+                } catch { /* invalid URL */ }
+            }
+        }
+    } catch (err) {
+        console.error("fetchAccountWebsite error:", err.message);
+    }
+    return null;
+}
+
 async function addCampaignNegativeKeywords(customerId, campaignResourceName, keywords) {
     // keywords: [{ text: string, match: "PHRASE" | "EXACT" | "BROAD" }]
     const customer = getGadsCustomer(customerId);
@@ -1636,12 +1666,18 @@ async function processQuestion(question, account, userId, channelId, event, say)
             }
         }
 
-        // Always crawl the client website when doing negative keyword analysis —
-        // without website vocabulary Ema can't check relevance and will suggest wrong negatives.
-        // Also crawl when intent.needsScrape is true and no URL was given.
-        if ((needsSearchTerms || intent.needsScrape) && urlsToCrawl.length === 0 && clientKnowledge) {
-            const clientUrl = extractClientWebsite(clientKnowledge);
-            if (clientUrl) urlsToCrawl.push(clientUrl);
+        // Always crawl the client website when doing negative keyword analysis.
+        // Without website vocabulary we can't check relevance and will suggest wrong negatives.
+        if ((needsSearchTerms || intent.needsScrape) && urlsToCrawl.length === 0) {
+            // 1. Try client knowledge file first
+            const clientUrl = clientKnowledge ? extractClientWebsite(clientKnowledge) : null;
+            if (clientUrl) {
+                urlsToCrawl.push(clientUrl);
+            } else if (needsSearchTerms) {
+                // 2. Pull website URL directly from the Google Ads account's ad final_urls
+                const adsWebsite = await fetchAccountWebsite(account.id);
+                if (adsWebsite) urlsToCrawl.push(adsWebsite);
+            }
         }
 
         if (urlsToCrawl.length > 0) {
