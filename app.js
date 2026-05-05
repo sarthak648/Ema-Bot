@@ -74,7 +74,7 @@ async function listCampaigns(customerId) {
         const queryPromise = customer.query(`
             SELECT campaign.id, campaign.name, campaign.status, campaign.resource_name
             FROM campaign
-            WHERE campaign.status != 'REMOVED'
+            WHERE campaign.status = 'ENABLED'
             ORDER BY campaign.name
         `);
         const timeoutPromise = new Promise((_, reject) =>
@@ -120,17 +120,127 @@ async function addCampaignNegativeKeywords(customerId, campaignResourceName, key
     return await customer.mutateResources(operations);
 }
 
+async function listAdGroups(customerId) {
+    try {
+        const customer = getGadsCustomer(customerId);
+        if (!customer) return [];
+        const queryPromise = customer.query(`
+            SELECT ad_group.id, ad_group.name, ad_group.resource_name, ad_group.status,
+                   campaign.name, campaign.resource_name
+            FROM ad_group
+            WHERE ad_group.status != 'REMOVED' AND campaign.status = 'ENABLED'
+            ORDER BY campaign.name, ad_group.name
+        `);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Google Ads API timeout after 30s")), 30000)
+        );
+        const rows = await Promise.race([queryPromise, timeoutPromise]);
+        return rows.map(r => ({
+            id: String(r.ad_group.id),
+            name: r.ad_group.name,
+            resourceName: r.ad_group.resource_name,
+            campaignName: r.campaign.name,
+            campaignResourceName: r.campaign.resource_name,
+        }));
+    } catch (err) {
+        console.error("listAdGroups error:", err.message);
+        return [];
+    }
+}
+
+async function addAdGroupKeywords(customerId, adGroupResourceName, keywords) {
+    // keywords: [{ text: string, match: "EXACT" | "PHRASE" | "BROAD" }]
+    const customer = getGadsCustomer(customerId);
+    if (!customer) throw new Error("Google Ads API not configured");
+
+    const matchTypeMap = {
+        PHRASE: enums.KeywordMatchType.PHRASE,
+        EXACT: enums.KeywordMatchType.EXACT,
+        BROAD: enums.KeywordMatchType.BROAD,
+    };
+
+    const operations = keywords.map(kw => ({
+        entity: "ad_group_criterion",
+        operation: "create",
+        resource: {
+            ad_group: adGroupResourceName,
+            keyword: {
+                text: kw.text,
+                match_type: matchTypeMap[kw.match] || enums.KeywordMatchType.EXACT,
+            },
+        },
+    }));
+
+    return await customer.mutateResources(operations);
+}
+
+// Convert a date range identifier to a valid GAQL date clause.
+// The Google Ads API DURING operator only accepts specific literals —
+// LAST_60_DAYS is NOT one of them, so unsupported ranges use explicit BETWEEN dates.
+const VALID_DURING_LITERALS = new Set([
+    "TODAY", "YESTERDAY", "THIS_WEEK_SUN_TODAY", "THIS_WEEK_MON_TODAY",
+    "LAST_7_DAYS", "LAST_BUSINESS_WEEK", "LAST_WEEK_SUN_SAT", "LAST_WEEK_MON_SUN",
+    "THIS_MONTH", "LAST_MONTH", "LAST_14_DAYS", "LAST_30_DAYS",
+    "LAST_90_DAYS", "LAST_180_DAYS", "LAST_365_DAYS",
+]);
+
+function toGadsDateClause(dateRange) {
+    if (VALID_DURING_LITERALS.has(dateRange)) return `DURING ${dateRange}`;
+    // For custom ranges like LAST_60_DAYS, compute explicit dates
+    const daysMatch = dateRange.match(/LAST_(\d+)_DAYS/);
+    const days = daysMatch ? parseInt(daysMatch[1]) : 30;
+    const fmt = d => d.toISOString().split("T")[0];
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    return `BETWEEN '${fmt(start)}' AND '${fmt(end)}'`;
+}
+
 // Parse search term filters from the user's question.
 // Supports: date range, min spend, min clicks. All have sensible defaults.
 function detectSearchTermFilters(question) {
     const q = question.toLowerCase();
 
-    // Date range
+    // Date range — any number of days/weeks/months/years supported.
+    // Common DURING literals are used where possible; everything else uses LAST_N_DAYS
+    // which toGadsDateClause() converts to an explicit BETWEEN clause.
     let dateRange = "LAST_30_DAYS";
-    if (/last\s*7\s*days|past\s*week|\b7\s*day/.test(q))  dateRange = "LAST_7_DAYS";
-    else if (/last\s*14\s*days|two\s*weeks|14\s*day/.test(q))  dateRange = "LAST_14_DAYS";
-    else if (/last\s*60\s*days|60\s*day|two\s*months/.test(q)) dateRange = "LAST_60_DAYS";
-    else if (/last\s*90\s*days|90\s*day|three\s*months|quarter/.test(q)) dateRange = "LAST_90_DAYS";
+
+    // Explicit N-day mentions: "last 45 days", "past 120 days"
+    const explicitDays = q.match(/last\s*(\d+)\s*days?|past\s*(\d+)\s*days?/);
+    const explicitWeeks = q.match(/last\s*(\d+)\s*weeks?|past\s*(\d+)\s*weeks?/);
+    const explicitMonths = q.match(/last\s*(\d+)\s*months?|past\s*(\d+)\s*months?/);
+    const explicitYears = q.match(/last\s*(\d+)\s*years?|past\s*(\d+)\s*years?/);
+
+    if (explicitDays) {
+        const d = parseInt(explicitDays[1] || explicitDays[2]);
+        if (d === 7)  dateRange = "LAST_7_DAYS";
+        else if (d === 14) dateRange = "LAST_14_DAYS";
+        else if (d === 30) dateRange = "LAST_30_DAYS";
+        else if (d === 90) dateRange = "LAST_90_DAYS";
+        else if (d === 180) dateRange = "LAST_180_DAYS";
+        else if (d === 365) dateRange = "LAST_365_DAYS";
+        else dateRange = `LAST_${d}_DAYS`;
+    } else if (explicitWeeks) {
+        const w = parseInt(explicitWeeks[1] || explicitWeeks[2]);
+        dateRange = `LAST_${w * 7}_DAYS`;
+    } else if (explicitMonths) {
+        const m = parseInt(explicitMonths[1] || explicitMonths[2]);
+        dateRange = m === 1 ? "LAST_30_DAYS" : m === 3 ? "LAST_90_DAYS" : m === 6 ? "LAST_180_DAYS" : m === 12 ? "LAST_365_DAYS" : `LAST_${m * 30}_DAYS`;
+    } else if (explicitYears) {
+        const y = parseInt(explicitYears[1] || explicitYears[2]);
+        dateRange = `LAST_${y * 365}_DAYS`;
+    } else if (/this month/.test(q)) {
+        dateRange = "THIS_MONTH";
+    } else if (/last month/.test(q)) {
+        dateRange = "LAST_MONTH";
+    } else if (/past\s*week|last\s*week/.test(q)) {
+        dateRange = "LAST_7_DAYS";
+    } else if (/quarter/.test(q)) {
+        dateRange = "LAST_90_DAYS";
+    } else if (/year/.test(q)) {
+        dateRange = "LAST_365_DAYS";
+    }
 
     // Min spend — "spend > 5", "more than £2", "over $10 spend", default 1
     let minSpend = 1;
@@ -169,6 +279,7 @@ async function fetchSearchTerms(customerId, filters = {}) {
                 search_term_view.status,
                 campaign.name,
                 campaign.resource_name,
+                campaign.advertising_channel_type,
                 ad_group.name,
                 metrics.cost_micros,
                 metrics.conversions,
@@ -176,8 +287,9 @@ async function fetchSearchTerms(customerId, filters = {}) {
                 metrics.impressions,
                 metrics.clicks
             FROM search_term_view
-            WHERE segments.date DURING ${dateRange}
+            WHERE segments.date ${toGadsDateClause(dateRange)}
                 AND metrics.cost_micros >= ${minSpendMicros}
+                AND campaign.status = 'ENABLED'
                 ${clicksFilter}
             ORDER BY metrics.cost_micros DESC
             LIMIT 1000
@@ -186,11 +298,19 @@ async function fetchSearchTerms(customerId, filters = {}) {
             setTimeout(() => reject(new Error("Google Ads API timeout after 30s")), 30000)
         );
         const rows = await Promise.race([queryPromise, timeoutPromise]);
-        console.log(`fetchSearchTerms: got ${rows.length} rows`);
+        // Log campaign type breakdown so we can see which campaign types are represented
+        const byType = {};
+        rows.forEach(r => {
+            const t = r.campaign.advertising_channel_type || "UNKNOWN";
+            byType[t] = (byType[t] || 0) + 1;
+        });
+        console.log(`fetchSearchTerms: got ${rows.length} rows — campaign types: ${JSON.stringify(byType)}`);
+        const channelTypeLabel = { 2: "Search", 3: "Display", 4: "Shopping", 6: "Video", 8: "Smart", 9: "PMax" };
         return rows.map(r => ({
             searchTerm: r.search_term_view.search_term,
             status: r.search_term_view.status,
             campaign: r.campaign.name,
+            campaignType: channelTypeLabel[r.campaign.advertising_channel_type] || "Search",
             campaignResourceName: r.campaign.resource_name,
             adGroup: r.ad_group.name,
             cost: r.metrics.cost_micros / 1_000_000,
@@ -200,24 +320,130 @@ async function fetchSearchTerms(customerId, filters = {}) {
             clicks: r.metrics.clicks || 0,
         }));
     } catch (err) {
-        console.error("fetchSearchTerms error:", err.message);
+        const msg = err?.message || err?.errors?.[0]?.message || JSON.stringify(err) || "unknown error";
+        console.error("fetchSearchTerms error:", msg);
+        if (err?.errors) console.error("fetchSearchTerms details:", JSON.stringify(err.errors));
         return [];
     }
 }
 
+// Fetch Performance Max search term insights (separate resource from search_term_view).
+// Returns rows in the same shape as fetchSearchTerms so they can be merged.
+async function fetchPMaxSearchTerms(customerId, dateRange = "LAST_30_DAYS") {
+    try {
+        const customer = getGadsCustomer(customerId);
+        if (!customer) return [];
+
+        const dateClause = toGadsDateClause(dateRange);
+        console.log(`fetchPMaxSearchTerms: querying campaign_search_term_view customer=${customerId} dateClause="${dateClause}"`);
+
+        const rows = await Promise.race([
+            customer.query(`
+                SELECT
+                    campaign_search_term_view.search_term,
+                    campaign_search_term_view.campaign,
+                    segments.date,
+                    metrics.cost_micros,
+                    metrics.conversions,
+                    metrics.conversions_value,
+                    metrics.impressions,
+                    metrics.clicks
+                FROM campaign_search_term_view
+                WHERE segments.date ${dateClause}
+                  AND metrics.cost_micros > 0
+                ORDER BY metrics.cost_micros DESC
+                LIMIT 500
+            `),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("PMax query timeout")), 30000)),
+        ]);
+        console.log(`fetchPMaxSearchTerms: got ${rows.length} rows`);
+
+        return rows.map(r => {
+            const campaignResourceName = r.campaign_search_term_view?.campaign || "";
+            const campaignId = campaignResourceName.split("/").pop() || "unknown";
+            return {
+                searchTerm: r.campaign_search_term_view.search_term,
+                status: "NONE",
+                campaign: campaignId,       // resolved to real name in processQuestion
+                campaignType: "PMax",
+                campaignResourceName,
+                adGroup: "PMax",
+                cost: (r.metrics.cost_micros || 0) / 1_000_000,
+                conversions: r.metrics.conversions || 0,
+                conversionValue: r.metrics.conversions_value || 0,
+                impressions: r.metrics.impressions || 0,
+                clicks: r.metrics.clicks || 0,
+            };
+        });
+    } catch (err) {
+        console.error("fetchPMaxSearchTerms error:", err.message || JSON.stringify(err));
+        if (err?.errors) console.error("fetchPMaxSearchTerms details:", JSON.stringify(err.errors));
+        return [];
+    }
+}
+
+// Fetch true account-level metrics so ROAS/CPA reflect the full account, not just the
+// filtered search term subset.
+async function fetchAccountMetrics(customerId, dateRange = "LAST_30_DAYS") {
+    try {
+        const customer = getGadsCustomer(customerId);
+        if (!customer) return null;
+        const rows = await Promise.race([
+            customer.query(`
+                SELECT
+                    metrics.cost_micros,
+                    metrics.conversions_value,
+                    metrics.conversions,
+                    metrics.clicks,
+                    metrics.impressions
+                FROM customer
+                WHERE segments.date ${toGadsDateClause(dateRange)}
+            `),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Account metrics timeout")), 30000)),
+        ]);
+        const totals = rows.reduce((acc, r) => ({
+            cost: acc.cost + (r.metrics.cost_micros || 0) / 1_000_000,
+            conversionValue: acc.conversionValue + (r.metrics.conversions_value || 0),
+            conversions: acc.conversions + (r.metrics.conversions || 0),
+            clicks: acc.clicks + (r.metrics.clicks || 0),
+            impressions: acc.impressions + (r.metrics.impressions || 0),
+        }), { cost: 0, conversionValue: 0, conversions: 0, clicks: 0, impressions: 0 });
+        console.log(`fetchAccountMetrics: cost=${totals.cost.toFixed(2)}, convValue=${totals.conversionValue.toFixed(2)}`);
+        return totals;
+    } catch (err) {
+        console.error("fetchAccountMetrics error:", err.message || JSON.stringify(err));
+        return null;
+    }
+}
+
 // Format search term rows as CSV that matches what the negative keyword skill expects.
-function formatSearchTermsForEma(rows, filters) {
+// accountMetrics (optional) supplies true account-level ROAS/CPA so Ema isn't deriving
+// it from the filtered search term subset.
+function formatSearchTermsForEma(rows, filters, accountMetrics = null) {
     const { dateRange, minSpendMicros, minClicks } = filters;
     const period = dateRange.replace(/_/g, " ").toLowerCase();
     const spendLabel = `min spend: ${(minSpendMicros / 1_000_000).toFixed(2)}`;
     const clicksLabel = minClicks > 0 ? `, min clicks: ${minClicks}` : "";
-    const header = "search term,campaign,ad group,cost,conversions,conversion value,ROAS,CPA,clicks,status";
+
+    let accountSummary = "";
+    if (accountMetrics && accountMetrics.cost > 0) {
+        const acctRoas = accountMetrics.conversionValue > 0
+            ? (accountMetrics.conversionValue / accountMetrics.cost).toFixed(2)
+            : "0";
+        const acctCpa = accountMetrics.conversions > 0
+            ? (accountMetrics.cost / accountMetrics.conversions).toFixed(2)
+            : "0";
+        accountSummary = `\nACCOUNT TOTALS (full account, ${period}): spend=${accountMetrics.cost.toFixed(2)}, ROAS=${acctRoas}x, CPA=${acctCpa}, conversions=${accountMetrics.conversions.toFixed(0)}, clicks=${accountMetrics.clicks}`;
+    }
+
+    const header = "search term,campaign,campaign type,ad group,cost,conversions,conversion value,ROAS,CPA,clicks,status";
     const dataRows = rows.map(r => {
         const roas = r.cost > 0 && r.conversionValue > 0 ? (r.conversionValue / r.cost).toFixed(2) : "0";
         const cpa = r.cost > 0 && r.conversions > 0 ? (r.cost / r.conversions).toFixed(2) : "0";
         return [
             `"${r.searchTerm}"`,
             `"${r.campaign}"`,
+            `"${r.campaignType || "Search"}"`,
             `"${r.adGroup}"`,
             r.cost.toFixed(2),
             r.conversions.toFixed(0),
@@ -228,7 +454,7 @@ function formatSearchTermsForEma(rows, filters) {
             r.status,
         ].join(",");
     });
-    return `FILE: Search Terms from Google Ads (${period}, ${spendLabel}${clicksLabel})\n${header}\n${dataRows.join("\n")}`;
+    return `FILE: Search Terms from Google Ads (${period}, ${spendLabel}${clicksLabel})${accountSummary}\n${header}\n${dataRows.join("\n")}`;
 }
 
 // Keep detectDateRange for backwards compat (used elsewhere)
@@ -242,8 +468,24 @@ function detectDateRange(question) {
 
 const pendingActions = {};
 
+function buildKeywordIndex(action) {
+    const index = {};
+    let i = 0;
+    for (const c of (action.campaigns || [])) {
+        for (const kw of (c.keywords || [])) {
+            index[`kw${i++}`] = { type: "negative", text: kw.text, match: kw.match, campaign: c.name };
+        }
+    }
+    for (const ag of (action.adGroups || [])) {
+        for (const kw of (ag.keywords || [])) {
+            index[`kw${i++}`] = { type: "positive", text: kw.text, match: kw.match, campaignName: ag.campaignName, adGroupName: ag.adGroupName };
+        }
+    }
+    return index;
+}
+
 function storePendingAction(threadTs, action) {
-    pendingActions[threadTs] = { ...action, storedAt: Date.now() };
+    pendingActions[threadTs] = { ...action, keywordIndex: buildKeywordIndex(action.action), storedAt: Date.now() };
     setTimeout(() => { delete pendingActions[threadTs]; }, 10 * 60 * 1000);
 }
 
@@ -284,33 +526,93 @@ function extractGadsAction(text) {
 async function executePendingAction(pending, say, threadTs) {
     const { action, accountId, accountName } = pending;
 
-    if (action.type !== "add_negatives") {
-        await say({ text: "not sure how to execute that — check with your admin", thread_ts: threadTs });
-        return;
-    }
-
-    const campaigns = await listCampaigns(accountId);
-    if (campaigns.length === 0) {
-        await say({ text: "couldn't fetch campaigns from Google Ads — check the API credentials in Railway", thread_ts: threadTs });
-        return;
-    }
+    console.log(`executePendingAction: type=${action.type}, accountId=${accountId}`);
 
     const results = [];
     const errors = [];
 
-    for (const c of action.campaigns) {
-        const campaign = campaigns.find(cam => cam.name.toLowerCase() === c.name.toLowerCase());
-        if (!campaign) {
-            errors.push(`couldn't find campaign "${c.name}" — name might have changed`);
-            continue;
+    if (action.type === "add_negatives") {
+        const campaigns = await listCampaigns(accountId);
+        console.log(`executePendingAction: found ${campaigns.length} campaigns`);
+        if (campaigns.length === 0) {
+            await say({ text: "couldn't fetch campaigns from Google Ads — check the API credentials", thread_ts: threadTs });
+            return;
         }
-        try {
-            await addCampaignNegativeKeywords(accountId, campaign.resourceName, c.keywords);
-            const kwList = c.keywords.map(k => `  - "${k.text}" (${k.match.toLowerCase()})`).join("\n");
-            results.push(`✓ *${campaign.name}* — ${c.keywords.length} negative${c.keywords.length !== 1 ? "s" : ""} added:\n${kwList}`);
-        } catch (err) {
-            errors.push(`*${c.name}*: ${err.message}`);
+        for (const c of action.campaigns) {
+            const campaign = campaigns.find(cam => cam.name.toLowerCase() === c.name.toLowerCase());
+            if (!campaign) {
+                errors.push(`couldn't find campaign "${c.name}"`);
+                continue;
+            }
+            try {
+                await addCampaignNegativeKeywords(accountId, campaign.resourceName, c.keywords);
+                const kwList = c.keywords.map(k => `  - "${k.text}" (${k.match.toLowerCase()})`).join("\n");
+                results.push(`✓ *${campaign.name}* — ${c.keywords.length} negative${c.keywords.length !== 1 ? "s" : ""} added:\n${kwList}`);
+            } catch (err) {
+                console.error(`executePendingAction negatives error for "${c.name}":`, err.message);
+                errors.push(`*${c.name}*: ${err.message}`);
+            }
         }
+
+    } else if (action.type === "add_keywords") {
+        const adGroups = await listAdGroups(accountId);
+        console.log(`executePendingAction: found ${adGroups.length} ad groups`);
+        if (adGroups.length === 0) {
+            await say({ text: "couldn't fetch ad groups from Google Ads — check the API credentials", thread_ts: threadTs });
+            return;
+        }
+        for (const ag of action.adGroups) {
+            const adGroup = adGroups.find(a =>
+                a.name.toLowerCase() === ag.adGroupName.toLowerCase() &&
+                a.campaignName.toLowerCase() === ag.campaignName.toLowerCase()
+            );
+            if (!adGroup) {
+                errors.push(`couldn't find ad group "${ag.adGroupName}" in campaign "${ag.campaignName}"`);
+                continue;
+            }
+            try {
+                await addAdGroupKeywords(accountId, adGroup.resourceName, ag.keywords);
+                const kwList = ag.keywords.map(k => `  - "${k.text}" (${k.match.toLowerCase()})`).join("\n");
+                results.push(`✓ *${ag.campaignName} > ${ag.adGroupName}* — ${ag.keywords.length} keyword${ag.keywords.length !== 1 ? "s" : ""} added:\n${kwList}`);
+            } catch (err) {
+                console.error(`executePendingAction keywords error for "${ag.adGroupName}":`, err.message);
+                errors.push(`*${ag.adGroupName}*: ${err.message}`);
+            }
+        }
+
+    } else if (action.type === "add_negatives_and_keywords") {
+        const [campaigns, adGroups] = await Promise.all([listCampaigns(accountId), listAdGroups(accountId)]);
+        for (const c of (action.campaigns || [])) {
+            const campaign = campaigns.find(cam => cam.name.toLowerCase() === c.name.toLowerCase());
+            if (!campaign) { errors.push(`couldn't find campaign "${c.name}"`); continue; }
+            try {
+                await addCampaignNegativeKeywords(accountId, campaign.resourceName, c.keywords);
+                const kwList = c.keywords.map(k => `  - "${k.text}" (${k.match.toLowerCase()})`).join("\n");
+                results.push(`✓ *${campaign.name}* — ${c.keywords.length} negative${c.keywords.length !== 1 ? "s" : ""} added:\n${kwList}`);
+            } catch (err) {
+                console.error(`executePendingAction negatives error for "${c.name}":`, err.message);
+                errors.push(`*${c.name}*: ${err.message}`);
+            }
+        }
+        for (const ag of (action.adGroups || [])) {
+            const adGroup = adGroups.find(a =>
+                a.name.toLowerCase() === ag.adGroupName.toLowerCase() &&
+                a.campaignName.toLowerCase() === ag.campaignName.toLowerCase()
+            );
+            if (!adGroup) { errors.push(`couldn't find ad group "${ag.adGroupName}" in campaign "${ag.campaignName}"`); continue; }
+            try {
+                await addAdGroupKeywords(accountId, adGroup.resourceName, ag.keywords);
+                const kwList = ag.keywords.map(k => `  - "${k.text}" (${k.match.toLowerCase()})`).join("\n");
+                results.push(`✓ *${ag.campaignName} > ${ag.adGroupName}* — ${ag.keywords.length} keyword${ag.keywords.length !== 1 ? "s" : ""} added:\n${kwList}`);
+            } catch (err) {
+                console.error(`executePendingAction keywords error for "${ag.adGroupName}":`, err.message);
+                errors.push(`*${ag.adGroupName}*: ${err.message}`);
+            }
+        }
+
+    } else {
+        await say({ text: "not sure how to execute that — check with your admin", thread_ts: threadTs });
+        return;
     }
 
     let reply = results.length > 0
@@ -473,13 +775,17 @@ async function detectClientFromChannel(channelId) {
     if (CHANNEL_MAP[channelId]) return CHANNEL_MAP[channelId];
     try {
         const info = await slack.client.conversations.info({ channel: channelId });
-        const channelName = (info.channel.name || "").toLowerCase();
+        const cleanChannel = (info.channel.name || "").toLowerCase().replace(/[-_\s]/g, "");
         for (const account of await getAllAccounts()) {
-            if (channelName.includes(account.name.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
-                return account.name;
+            const parts = account.name.toLowerCase().split(/[\s&,_-]+/).filter(w => w.length > 3);
+            for (const part of parts) {
+                if (cleanChannel.includes(part)) {
+                    console.log(`detectClientFromChannel: matched "${account.name}" via word "${part}" in channel "${cleanChannel}"`);
+                    return account.name;
+                }
             }
         }
-    } catch (e) { /* channel info not available */ }
+    } catch (e) { console.error("detectClientFromChannel error:", e.message); }
     return null;
 }
 
@@ -938,7 +1244,7 @@ function formatData(data, accountName) {
 
 // ── Ema's Personality & System Prompt ─────────────────────────
 
-function buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns = []) {
+function buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns = [], adGroups = []) {
     return `You are Ema — a real person on the team, not an AI assistant. You're a sharp, warm, emotionally intelligent paid media strategist who genuinely cares about the people she works with and the clients she helps.
 
 HOW YOU TALK:
@@ -975,18 +1281,27 @@ ${webContext ? "WEB RESEARCH:\n" + webContext + "\n\n" : ""}
 ${campaigns.length > 0 ? `GOOGLE ADS CAMPAIGNS (live from API):
 ${campaigns.map(c => `- ${c.name} [${c.status}]`).join("\n")}
 
-ADDING NEGATIVE KEYWORDS DIRECTLY TO GOOGLE ADS:
-You can add negative keywords directly to campaigns after the user confirms. When you have specific negatives to recommend:
-1. Present your recommendations clearly grouped by campaign in your response
-2. At the very end of your message add this action block on its own line (exact format, no spaces inside):
-__GADS_ACTION__{"type":"add_negatives","campaigns":[{"name":"EXACT CAMPAIGN NAME AS LISTED ABOVE","keywords":[{"text":"keyword text","match":"PHRASE"}]}]}__END_ACTION__
+` : ""}${adGroups.length > 0 ? `GOOGLE ADS AD GROUPS (live from API):
+${adGroups.map(a => `- ${a.campaignName} > ${a.name}`).join("\n")}
 
-Rules for the action block:
-- Campaign name must exactly match a name from the GOOGLE ADS CAMPAIGNS list above
-- match must be "PHRASE", "EXACT", or "BROAD" — phrase is the default
-- Include all campaigns in one block as an array — do not write multiple blocks
-- Only include the block when you have specific keywords ready for specific campaigns
-- Do NOT include it for general advice or analysis without specific keyword recommendations
+` : ""}${campaigns.length > 0 ? `MAKING CHANGES DIRECTLY IN GOOGLE ADS:
+You have live API access. You MUST end your message with ONE action block when recommending changes. Never say you can't make changes — you can.
+
+For NEGATIVE KEYWORDS — end your message with:
+__GADS_ACTION__{"type":"add_negatives","campaigns":[{"name":"EXACT CAMPAIGN NAME","keywords":[{"text":"keyword","match":"PHRASE"}]}]}__END_ACTION__
+
+For ADDING KEYWORDS to ad groups — end your message with:
+__GADS_ACTION__{"type":"add_keywords","adGroups":[{"campaignName":"EXACT CAMPAIGN NAME","adGroupName":"EXACT AD GROUP NAME","keywords":[{"text":"keyword","match":"EXACT"}]}]}__END_ACTION__
+
+For BOTH negatives AND keywords — end your message with ONE block:
+__GADS_ACTION__{"type":"add_negatives_and_keywords","campaigns":[{"name":"EXACT CAMPAIGN NAME","keywords":[{"text":"keyword","match":"PHRASE"}]}],"adGroups":[{"campaignName":"EXACT CAMPAIGN NAME","adGroupName":"EXACT AD GROUP NAME","keywords":[{"text":"keyword","match":"EXACT"}]}]}__END_ACTION__
+
+CRITICAL RULES:
+- Including the action block is MANDATORY — never skip it when recommending changes
+- Campaign and ad group names must exactly match the lists above
+- For negatives: single words → BROAD, 2-word phrases → PHRASE, 3+ words → EXACT. For keywords: match defaults to EXACT
+- Include ALL changes in ONE block — never write multiple blocks
+- If you skip the action block, the user cannot confirm and the changes won't happen
 
 ` : ""}YOUR CAPABILITIES:
 - You can pull live ad performance data from Windsor.ai (if data is provided below, use it)
@@ -1197,7 +1512,7 @@ async function fetchThreadHistory(channelId, threadTs, currentTs) {
 
 // ── Main AI Call ──────────────────────────────────────────────
 
-async function askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = [], campaigns = []) {
+async function askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext, threadHistory = [], campaigns = [], adGroups = []) {
     const skillContents = skillNames
         .filter(s => s !== "general")
         .map(s => {
@@ -1207,7 +1522,7 @@ async function askEma(question, skillNames, data, account, clientKnowledge, gree
         .join("\n");
 
     const dataContext = data.length > 0 ? formatData(data, account.name) : "No data available for this period.";
-    const system = buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns);
+    const system = buildSystemPrompt(skillContents, clientKnowledge, dataContext, skillNames, webContext, campaigns, adGroups);
 
     const userMessage = greeting
         ? `[First message from this person today — greet them warmly but briefly, like a colleague would. Just a quick "hey!" or "morning!" type thing, then get to their question. Don't make the greeting a big deal.]\n\n${question}`
@@ -1287,7 +1602,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
         }
 
         // Auto-fetch search terms from Google Ads if doing negative keyword analysis and no file uploaded.
-        // Silently fetches — no message to user. Respects filters from the question (date range, min spend, min clicks).
+        // Fetches Search/Shopping terms + PMax search term insights + true account-level metrics in parallel.
         const needsSearchTerms = skillNames.some(s => s.includes("negative"))
             && slackFiles.length === 0
             && sheetUrls.length === 0
@@ -1296,11 +1611,24 @@ async function processQuestion(question, account, userId, channelId, event, say)
         if (needsSearchTerms) {
             const filters = detectSearchTermFilters(question);
             console.log(`Fetching search terms for ${account.name} — ${filters.dateRange}, minSpend: ${filters.minSpendMicros / 1_000_000}, minClicks: ${filters.minClicks}`);
-            const searchTermRows = await fetchSearchTerms(account.id, filters);
-            if (searchTermRows.length > 0) {
-                const searchTermCsv = formatSearchTermsForEma(searchTermRows, filters);
+            const [searchTermRows, pmaxRows, accountMetrics, allCampaigns] = await Promise.all([
+                fetchSearchTerms(account.id, filters),
+                fetchPMaxSearchTerms(account.id, filters.dateRange),
+                fetchAccountMetrics(account.id, filters.dateRange),
+                listCampaigns(account.id),
+            ]);
+            // Resolve PMax campaign IDs to real names using the campaign list
+            const campaignById = {};
+            for (const c of allCampaigns) campaignById[c.id] = c.name;
+            const resolvedPmaxRows = pmaxRows.map(r => {
+                const campaignId = r.campaignResourceName.split("/").pop();
+                return { ...r, campaign: campaignById[campaignId] || r.campaign };
+            });
+            const allRows = [...searchTermRows, ...resolvedPmaxRows];
+            console.log(`Fetched ${searchTermRows.length} search + ${pmaxRows.length} PMax terms for ${account.name}`);
+            if (allRows.length > 0) {
+                const searchTermCsv = formatSearchTermsForEma(allRows, filters, accountMetrics);
                 fileContext = searchTermCsv + (fileContext ? "\n\n" + fileContext : "");
-                console.log(`Fetched ${searchTermRows.length} search terms for ${account.name}`);
             } else {
                 console.log(`No search terms returned from Google Ads for ${account.name} — API may not be configured or no data in range`);
                 await say({ text: "couldn't pull search terms from Google Ads — the API might not be connected yet. can you upload a search term export from Google Ads instead?", thread_ts: event.thread_ts || event.ts });
@@ -1308,8 +1636,10 @@ async function processQuestion(question, account, userId, channelId, event, say)
             }
         }
 
-        // If scraping is needed but no URLs given, try to find client website from knowledge
-        if (intent.needsScrape && urlsToCrawl.length === 0 && clientKnowledge) {
+        // Always crawl the client website when doing negative keyword analysis —
+        // without website vocabulary Ema can't check relevance and will suggest wrong negatives.
+        // Also crawl when intent.needsScrape is true and no URL was given.
+        if ((needsSearchTerms || intent.needsScrape) && urlsToCrawl.length === 0 && clientKnowledge) {
             const clientUrl = extractClientWebsite(clientKnowledge);
             if (clientUrl) urlsToCrawl.push(clientUrl);
         }
@@ -1333,11 +1663,18 @@ async function processQuestion(question, account, userId, channelId, event, say)
         // Merge file context into web context
         if (fileContext) webContext = fileContext + (webContext ? "\n\n---\n\n" + webContext : "");
 
-        // Fetch campaigns from Google Ads API when doing negative keyword work
-        const needsCampaigns = skillNames.some(s => s.includes("negative"));
-        const campaigns = needsCampaigns ? await listCampaigns(account.id) : [];
+        // Fetch campaigns and/or ad groups from Google Ads API when doing keyword work
+        const needsCampaigns = skillNames.some(s => s.includes("negative") || s.includes("keyword"));
+        const needsAdGroups = skillNames.some(s => s.includes("keyword"));
+        const [campaigns, adGroups] = needsCampaigns
+            ? await Promise.all([
+                listCampaigns(account.id),
+                needsAdGroups ? listAdGroups(account.id) : Promise.resolve([]),
+              ])
+            : [[], []];
+        console.log(`processQuestion: needsCampaigns=${needsCampaigns}, campaigns=${campaigns.length}, adGroups=${adGroups.length}, skills=${skillNames.join(",")}`);
 
-        // Fetch thread history so Mia knows what's already been discussed
+        // Fetch thread history so Ema knows what's already been discussed
         const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
 
         // Send a "still working" message after 20s so Slack doesn't look frozen on big tasks
@@ -1348,19 +1685,41 @@ async function processQuestion(question, account, userId, channelId, event, say)
         }, 20000);
 
         // Ask Ema
-        const rawAnswer = await askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory, campaigns);
+        const rawAnswer = await askEma(question, skillNames, data, account, clientKnowledge, greeting, webContext || "", threadHistory, campaigns, adGroups);
         clearTimeout(stillWorkingMsg);
 
         // Extract any Google Ads action block Ema embedded in her response
         const { text: answer, action } = extractGadsAction(rawAnswer);
+        console.log(`processQuestion: action block found=${!!action}, rawAnswer contains __GADS_ACTION__=${rawAnswer.includes("__GADS_ACTION__")}`);
 
-        // Store pending action and append confirmation prompt if action was proposed
+        // Store pending action and post review buttons if action was proposed
         const threadTs = event.thread_ts || event.ts;
-        if (action && campaigns.length > 0) {
+        if (action && (campaigns.length > 0 || adGroups.length > 0)) {
             storePendingAction(threadTs, { action, accountId: account.id, accountName: account.name });
+            await say({ text: answer, thread_ts: threadTs });
             await say({
-                text: answer + "\n\nReply *yes* to add these now, or let me know what you'd like to change.",
+                text: "Want to add these keywords to Google Ads?",
                 thread_ts: threadTs,
+                blocks: [
+                    {
+                        type: "actions",
+                        elements: [
+                            {
+                                type: "button",
+                                text: { type: "plain_text", text: "Review & Select Keywords" },
+                                style: "primary",
+                                action_id: "review_keywords",
+                                value: threadTs,
+                            },
+                            {
+                                type: "button",
+                                text: { type: "plain_text", text: "Add All" },
+                                action_id: "add_all_keywords",
+                                value: threadTs,
+                            },
+                        ],
+                    },
+                ],
             });
         } else {
             await say({ text: answer, thread_ts: threadTs });
@@ -1443,7 +1802,7 @@ async function processGeneralQuestion(question, userId, channelId, event, say) {
             ? `[First message from this person today — greet them warmly but briefly.]\n\n${question}`
             : question;
 
-        // Fetch thread history so Mia knows what's already been discussed
+        // Fetch thread history so Ema knows what's already been discussed
         const threadHistory = await fetchThreadHistory(channelId, event.thread_ts, event.ts);
 
         // Include full thread history so Ema has conversation context
@@ -1512,11 +1871,16 @@ slack.event("app_mention", async ({ event, say }) => {
         return;
     }
 
-    // Detect account from question, then fall back to channel name
-    let account = await detectAccount(effectiveQuestion);
+    // Try channel name FIRST, then question text
+    let account = null;
+    const channelClient = await detectClientFromChannel(channelId);
+    if (channelClient) {
+        account = await detectAccount(channelClient);
+        if (account) console.log(`app_mention: account "${account.name}" resolved from channel name`);
+    }
     if (!account) {
-        const channelClient = await detectClientFromChannel(channelId);
-        if (channelClient) account = await detectAccount(channelClient);
+        account = await detectAccount(effectiveQuestion);
+        if (account) console.log(`app_mention: account "${account.name}" resolved from question text`);
     }
 
     if (!account) {
@@ -1592,6 +1956,221 @@ slack.event("message", async ({ event, say }) => {
             await processGeneralQuestion(effectiveQuestion, userId, channelId, event, say);
         }
     }
+});
+
+// ── Keyword Review Modal ──────────────────────────────────────
+
+function buildKeywordReviewModal(accountName, keywordIndex, enabledCampaigns) {
+    const blocks = [];
+    const entries = Object.entries(keywordIndex);
+    const negEntries = entries.filter(([, v]) => v.type === "negative");
+    const posEntries = entries.filter(([, v]) => v.type === "positive");
+
+    // Campaign options shared across every keyword dropdown
+    const campaignOptions = enabledCampaigns.slice(0, 50).map(c => ({
+        text: { type: "plain_text", text: c.name.substring(0, 75) },
+        value: c.resourceName,
+    }));
+
+    // ── Negative keywords ─────────────────────────────────────────────────────
+    if (negEntries.length > 0) {
+        blocks.push({
+            type: "section",
+            block_id: "neg_header",
+            text: { type: "mrkdwn", text: "*Negative Keywords*\nFor each keyword choose where to add it. Default is the suggested campaign — change to *All campaigns* to add everywhere, or pick a specific campaign from the list." },
+        });
+
+        const MAX_NEGS = 85;
+        const negToRender = negEntries.slice(0, MAX_NEGS);
+        const negTruncated = negEntries.length > MAX_NEGS;
+
+        for (const [id, kw] of negToRender) {
+            const suggestedLabel = `Suggested: ${kw.campaign}`.substring(0, 75);
+            const suggestedOption = {
+                text: { type: "plain_text", text: suggestedLabel },
+                value: "suggested",
+            };
+            const dontAddOption = {
+                text: { type: "plain_text", text: "Don't add" },
+                value: "dont_add",
+            };
+            const allOption = {
+                text: { type: "plain_text", text: "All campaigns" },
+                value: "all_campaigns",
+            };
+
+            blocks.push({
+                type: "input",
+                block_id: id,
+                optional: true,
+                label: { type: "plain_text", text: `"${kw.text}" (${kw.match.toLowerCase()})`.substring(0, 2000) },
+                element: {
+                    type: "static_select",
+                    action_id: "campaign_for_kw",
+                    placeholder: { type: "plain_text", text: "Don't add" },
+                    options: [dontAddOption, suggestedOption, allOption, ...campaignOptions],
+                    initial_option: suggestedOption,
+                },
+            });
+        }
+
+        if (negTruncated) {
+            blocks.push({
+                type: "section",
+                block_id: "neg_truncated",
+                text: { type: "mrkdwn", text: `_Showing ${MAX_NEGS} of ${negEntries.length} negative keywords. Use "Add All" to include everything._` },
+            });
+        }
+    }
+
+    // ── Positive keywords (checkboxes — per ad group) ─────────────────────────
+    if (posEntries.length > 0) {
+        blocks.push({
+            type: "section",
+            block_id: "pos_header",
+            text: { type: "mrkdwn", text: "*Positive Keywords*\nCheck the ones you want to add to their suggested ad groups." },
+        });
+
+        const posChunks = [];
+        for (let i = 0; i < posEntries.length; i += 10) posChunks.push(posEntries.slice(i, i + 10));
+        const maxPosChunks = Math.min(posChunks.length, 8);
+
+        posChunks.slice(0, maxPosChunks).forEach((chunk, ci) => {
+            const options = chunk.map(([id, kw]) => ({
+                text: { type: "mrkdwn", text: `\`${kw.text}\` (${kw.match.toLowerCase()}) → ${kw.campaignName} > ${kw.adGroupName}`.substring(0, 2000) },
+                value: id,
+            }));
+            blocks.push({
+                type: "input",
+                block_id: `pos_chunk_${ci}`,
+                optional: true,
+                label: { type: "plain_text", text: ci === 0 ? "Select keywords to add" : "​" },
+                element: {
+                    type: "checkboxes",
+                    action_id: `pos_select_${ci}`,
+                    options,
+                },
+            });
+        });
+    }
+
+    return blocks;
+}
+
+slack.action("review_keywords", async ({ action, ack, body, client }) => {
+    await ack();
+    const threadTs = action.value;
+    const pending = getPendingAction(threadTs);
+    if (!pending) {
+        await client.views.open({
+            trigger_id: body.trigger_id,
+            view: {
+                type: "modal",
+                title: { type: "plain_text", text: "Expired" },
+                close: { type: "plain_text", text: "OK" },
+                blocks: [{ type: "section", block_id: "expired", text: { type: "mrkdwn", text: "This action has expired. Run the analysis again." } }],
+            },
+        });
+        return;
+    }
+    const enabledCampaigns = await listCampaigns(pending.accountId);
+    const blocks = buildKeywordReviewModal(pending.accountName, pending.keywordIndex, enabledCampaigns);
+    await client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+            type: "modal",
+            callback_id: "keyword_review_modal",
+            private_metadata: JSON.stringify({ threadTs, channelId: body.channel.id }),
+            title: { type: "plain_text", text: pending.accountName.substring(0, 24) },
+            submit: { type: "plain_text", text: "Add Selected" },
+            close: { type: "plain_text", text: "Cancel" },
+            blocks,
+        },
+    });
+});
+
+slack.action("add_all_keywords", async ({ action, ack, body, client }) => {
+    await ack();
+    const threadTs = action.value;
+    const pending = getPendingAction(threadTs);
+    if (!pending) return;
+    clearPendingAction(threadTs);
+    const say = async (msg) => client.chat.postMessage({ channel: body.channel.id, thread_ts: threadTs, ...msg });
+    await executePendingAction(pending, say, threadTs);
+});
+
+slack.view("keyword_review_modal", async ({ ack, view, client }) => {
+    await ack();
+    const { threadTs, channelId } = JSON.parse(view.private_metadata);
+    const pending = getPendingAction(threadTs);
+    if (!pending) return;
+
+    const kwIndex = pending.keywordIndex;
+    const enabledCampaigns = await listCampaigns(pending.accountId);
+
+    const negCampaignMap = {};
+    const adGroupMap = {};
+
+    const addToNegMap = (campaignName, kw) => {
+        if (!negCampaignMap[campaignName]) negCampaignMap[campaignName] = [];
+        // avoid duplicates if the same keyword was added to the same campaign multiple times
+        if (!negCampaignMap[campaignName].some(k => k.text === kw.text && k.match === kw.match)) {
+            negCampaignMap[campaignName].push({ text: kw.text, match: kw.match });
+        }
+    };
+
+    for (const [blockId, blockVals] of Object.entries(view.state.values)) {
+        const kw = kwIndex[blockId];
+
+        if (kw && kw.type === "negative") {
+            // Each negative keyword block has a static_select (action_id: campaign_for_kw)
+            const selected = blockVals.campaign_for_kw?.selected_option;
+            if (!selected || selected.value === "dont_add") continue;
+
+            if (selected.value === "suggested") {
+                addToNegMap(kw.campaign, kw);
+            } else if (selected.value === "all_campaigns") {
+                for (const c of enabledCampaigns) addToNegMap(c.name, kw);
+            } else {
+                // value is a campaign resourceName
+                const camp = enabledCampaigns.find(c => c.resourceName === selected.value);
+                if (camp) addToNegMap(camp.name, kw);
+            }
+        } else if (blockId.startsWith("pos_chunk_")) {
+            // Positive keyword blocks use checkboxes
+            for (const el of Object.values(blockVals)) {
+                for (const opt of (el.selected_options || [])) {
+                    const pkw = kwIndex[opt.value];
+                    if (pkw && pkw.type === "positive") {
+                        const key = `${pkw.campaignName}||${pkw.adGroupName}`;
+                        if (!adGroupMap[key]) adGroupMap[key] = { campaignName: pkw.campaignName, adGroupName: pkw.adGroupName, keywords: [] };
+                        adGroupMap[key].keywords.push({ text: pkw.text, match: pkw.match });
+                    }
+                }
+            }
+        }
+    }
+
+    const filteredCampaigns = Object.entries(negCampaignMap).map(([name, keywords]) => ({ name, keywords }));
+    const filteredAdGroups = Object.values(adGroupMap);
+
+    let filteredAction;
+    if (filteredCampaigns.length > 0 && filteredAdGroups.length > 0) {
+        filteredAction = { type: "add_negatives_and_keywords", campaigns: filteredCampaigns, adGroups: filteredAdGroups };
+    } else if (filteredCampaigns.length > 0) {
+        filteredAction = { type: "add_negatives", campaigns: filteredCampaigns };
+    } else if (filteredAdGroups.length > 0) {
+        filteredAction = { type: "add_keywords", adGroups: filteredAdGroups };
+    } else {
+        await client.chat.postMessage({ channel: channelId, thread_ts: threadTs, text: "no keywords selected — nothing was added" });
+        clearPendingAction(threadTs);
+        return;
+    }
+
+    const filteredPending = { ...pending, action: filteredAction };
+    clearPendingAction(threadTs);
+    const say = async (msg) => client.chat.postMessage({ channel: channelId, thread_ts: threadTs, ...msg });
+    await executePendingAction(filteredPending, say, threadTs);
 });
 
 // ── Start ─────────────────────────────────────────────────────
