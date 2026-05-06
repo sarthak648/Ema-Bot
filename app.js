@@ -1353,10 +1353,10 @@ CRITICAL RULES:
 - You can add negative keywords directly to Google Ads campaigns — campaigns are listed above when available
 - Search term data may be pre-loaded from the Google Ads API — if you see "FILE: Search Terms from Google Ads" in the WEB RESEARCH section, that IS the search term report. Use it immediately and run the full analysis without asking for anything.
 
-NEGATIVE KEYWORD ANALYSIS — MANDATORY WEBSITE CHECK:
-Before suggesting ANY negative keywords you MUST verify what the client actually sells by checking their website. This is non-negotiable — recommending a negative without knowing the product catalog risks blocking relevant terms and destroying performance.
+NEGATIVE KEYWORD ANALYSIS — WEBSITE CHECK:
+The system automatically discovers the client website from their Google Ads account (from ad landing pages). You must NEVER ask the user for a website URL or to upload any file — all data is fetched automatically.
 - If website content IS in your context (under WEB RESEARCH): use it as your relevance reference. Proceed with the full analysis.
-- If website content is NOT in your context: do NOT suggest any negatives. Instead respond with exactly one sentence asking for the website URL. Example: "Before I suggest any negatives, I need to check your website — what's the URL?" Then stop. No bullet points, no analysis, no partial recommendations.
+- If website content is NOT in your context: proceed using the account name and campaign/ad group names to infer what the client sells. Make reasonable inferences and run the full analysis. Do NOT ask for a URL.
 
 WHEN SOMETHING IS MISSING — one line, nothing else:
 - Missing file: "can't see the file, can you re-upload it?" — that's it. No bullet points. No "once I have it I'll...". Stop there.
@@ -1677,9 +1677,8 @@ async function processQuestion(question, account, userId, channelId, event, say)
                 const searchTermCsv = formatSearchTermsForEma(allRows, filters, accountMetrics);
                 fileContext = searchTermCsv + (fileContext ? "\n\n" + fileContext : "");
             } else {
-                console.log(`No search terms returned from Google Ads for ${account.name} — API may not be configured or no data in range`);
-                await say({ text: "couldn't pull search terms from Google Ads — the API might not be connected yet. can you upload a search term export from Google Ads instead?", thread_ts: event.thread_ts || event.ts });
-                return;
+                console.log(`No search terms returned from Google Ads for ${account.name} — no data in range or account may be PMax-only`);
+                fileContext = "Search Terms from Google Ads: No search term data found for the selected date range. This may be because the account runs PMax campaigns only (which don't expose individual search terms), or there were no impressions in the period." + (fileContext ? "\n\n" + fileContext : "");
             }
         }
 

@@ -5,15 +5,13 @@ description: "Use this skill when the user asks anything related to negative key
 
 # Negative Keyword Analysis Skill
 
-## ⛔ HARD RULE — WEBSITE FIRST, ALWAYS
+## ⛔ HARD RULE — NEVER ASK THE USER FOR DATA
 
-**You must check the client's website BEFORE suggesting a single negative keyword. No exceptions.**
+**The system automatically fetches everything: search terms from Google Ads API, website content from the account's ad landing pages. You must NEVER ask the user to upload a file, share a URL, or provide any data manually.**
 
-The entire analysis depends on knowing what the client sells. Without that, you will block relevant terms and damage performance. This is the most common and most damaging mistake in negative keyword work.
+**If website content is in your context (WEB RESEARCH section):** use it as your relevance reference for the full analysis.
 
-**If website content is in your context (WEB RESEARCH section):** proceed with the full analysis using it as your relevance reference.
-
-**If website content is NOT in your context:** stop immediately. Do not suggest any negatives. Do not do any partial analysis. Ask for the URL in one sentence and wait: _"Before I suggest any negatives, I need to check your website to see what you sell — what's the URL?"_
+**If website content is NOT in your context:** proceed using the account name and campaign/ad group names to infer what the client sells. Do NOT ask for a URL — the system already attempted auto-discovery.
 
 ---
 
