@@ -1598,10 +1598,14 @@ async function processQuestion(question, account, userId, channelId, event, say)
     // Show a thinking message only when actually pulling data or doing research
     if (intent.needsData || intent.needsWebSearch || intent.needsScrape) {
         const thinkingMessages = [
-            "Let me pull that up for *" + account.name + "*...",
-            "On it, checking *" + account.name + "* now...",
-            "Looking into this for *" + account.name + "*...",
-            "Give me a sec, pulling *" + account.name + "* data...",
+            "on it 👀 digging into *" + account.name + "* now",
+            "give me a moment, pulling up *" + account.name + "*",
+            "already on it — *" + account.name + "* data loading",
+            "good timing, let me check *" + account.name + "* real quick",
+            "on it — *" + account.name + "*, one sec",
+            "let me have a look at *" + account.name + "* for you",
+            "checking *" + account.name + "* now, two secs",
+            "right, let me dig into *" + account.name + "*",
         ];
         const thinkingMsg = thinkingMessages[Math.floor(Math.random() * thinkingMessages.length)];
         await say({ text: thinkingMsg, thread_ts: event.thread_ts || event.ts });
@@ -1697,7 +1701,13 @@ async function processQuestion(question, account, userId, channelId, event, say)
         }
 
         if (urlsToCrawl.length > 0) {
-            await say({ text: "browsing the site to understand it better — checking multiple pages...", thread_ts: event.thread_ts || event.ts });
+            const crawlMessages = [
+                "having a quick nose around the site too...",
+                "pulling up the site as well — want to make sure I know exactly what they sell",
+                "also checking the site real quick",
+                "peeking at the website while I'm at it",
+            ];
+            await say({ text: crawlMessages[Math.floor(Math.random() * crawlMessages.length)], thread_ts: event.thread_ts || event.ts });
             try {
                 const crawlResults = await Promise.all(urlsToCrawl.map(url => crawlWebsite(url)));
                 webContext = crawlResults.map(pages => formatCrawlResults(pages)).join("\n\n");
@@ -1732,7 +1742,14 @@ async function processQuestion(question, account, userId, channelId, event, say)
         // Send a "still working" message after 20s so Slack doesn't look frozen on big tasks
         const stillWorkingMsg = setTimeout(async () => {
             try {
-                await say({ text: "still on it — this one's a big task, almost there...", thread_ts: event.thread_ts || event.ts });
+                const stillWorkingMessages = [
+                    "still with you, this one needs a proper look",
+                    "nearly there, just making sure I get this right",
+                    "taking a bit longer than usual — there's a lot to go through",
+                    "still on it, don't worry",
+                    "won't be long now, just crunching through the data",
+                ];
+                await say({ text: stillWorkingMessages[Math.floor(Math.random() * stillWorkingMessages.length)], thread_ts: event.thread_ts || event.ts });
             } catch (_) {}
         }, 20000);
 
