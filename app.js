@@ -1682,14 +1682,14 @@ async function processQuestion(question, account, userId, channelId, event, say)
             }
         }
 
-        // Always crawl the client website when doing negative keyword analysis.
-        // Without website vocabulary we can't check relevance and will suggest wrong negatives.
-        if ((needsSearchTerms || intent.needsScrape) && urlsToCrawl.length === 0) {
+        // Crawl client website for skills that need it (negative keywords, keyword research, etc.)
+        const needsWebsite = needsSearchTerms || skillNames.some(s => s.includes("keyword"));
+        if ((needsWebsite || intent.needsScrape) && urlsToCrawl.length === 0) {
             // 1. Try client knowledge file first
             const clientUrl = clientKnowledge ? extractClientWebsite(clientKnowledge) : null;
             if (clientUrl) {
                 urlsToCrawl.push(clientUrl);
-            } else if (needsSearchTerms) {
+            } else {
                 // 2. Pull website URL directly from the Google Ads account's ad final_urls
                 const adsWebsite = await fetchAccountWebsite(account.id);
                 if (adsWebsite) urlsToCrawl.push(adsWebsite);
