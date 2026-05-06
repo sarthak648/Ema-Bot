@@ -142,7 +142,7 @@ async function addCampaignNegativeKeywords(customerId, campaignResourceName, key
             negative: true,
             keyword: {
                 text: kw.text,
-                match_type: matchTypeMap[kw.match] || enums.KeywordMatchType.PHRASE,
+                match_type: matchTypeMap[(kw.match || "").toUpperCase()] || enums.KeywordMatchType.PHRASE,
             },
         },
     }));
@@ -196,7 +196,7 @@ async function addAdGroupKeywords(customerId, adGroupResourceName, keywords) {
             ad_group: adGroupResourceName,
             keyword: {
                 text: kw.text,
-                match_type: matchTypeMap[kw.match] || enums.KeywordMatchType.EXACT,
+                match_type: matchTypeMap[(kw.match || "").toUpperCase()] || enums.KeywordMatchType.EXACT,
             },
         },
     }));
@@ -1328,18 +1328,19 @@ ${adGroups.map(a => `- ${a.campaignName} > ${a.name}`).join("\n")}
 ` : ""}${campaigns.length > 0 ? `MAKING CHANGES DIRECTLY IN GOOGLE ADS:
 You have live API access. You MUST end your message with ONE action block when recommending changes. Never say you can't make changes — you can.
 
-For NEGATIVE KEYWORDS — end your message with:
-__GADS_ACTION__{"type":"add_negatives","campaigns":[{"name":"EXACT CAMPAIGN NAME","keywords":[{"text":"keyword","match":"PHRASE"}]}]}__END_ACTION__
+For NEGATIVE KEYWORDS — end your message with (note: use BROAD for single words, PHRASE for 2-word phrases, EXACT for 3+ words):
+__GADS_ACTION__{"type":"add_negatives","campaigns":[{"name":"EXACT CAMPAIGN NAME","keywords":[{"text":"jobs","match":"BROAD"},{"text":"side effects","match":"PHRASE"},{"text":"melatonin overdose symptoms","match":"EXACT"}]}]}__END_ACTION__
 
 For ADDING KEYWORDS to ad groups — end your message with:
 __GADS_ACTION__{"type":"add_keywords","adGroups":[{"campaignName":"EXACT CAMPAIGN NAME","adGroupName":"EXACT AD GROUP NAME","keywords":[{"text":"keyword","match":"EXACT"}]}]}__END_ACTION__
 
 For BOTH negatives AND keywords — end your message with ONE block:
-__GADS_ACTION__{"type":"add_negatives_and_keywords","campaigns":[{"name":"EXACT CAMPAIGN NAME","keywords":[{"text":"keyword","match":"PHRASE"}]}],"adGroups":[{"campaignName":"EXACT CAMPAIGN NAME","adGroupName":"EXACT AD GROUP NAME","keywords":[{"text":"keyword","match":"EXACT"}]}]}__END_ACTION__
+__GADS_ACTION__{"type":"add_negatives_and_keywords","campaigns":[{"name":"EXACT CAMPAIGN NAME","keywords":[{"text":"jobs","match":"BROAD"},{"text":"side effects","match":"PHRASE"},{"text":"melatonin overdose symptoms","match":"EXACT"}]}],"adGroups":[{"campaignName":"EXACT CAMPAIGN NAME","adGroupName":"EXACT AD GROUP NAME","keywords":[{"text":"keyword","match":"EXACT"}]}]}__END_ACTION__
 
 CRITICAL RULES:
 - Including the action block is MANDATORY — never skip it when recommending changes
 - Campaign and ad group names must exactly match the lists above
+- match values MUST be uppercase: "BROAD", "PHRASE", or "EXACT" — never lowercase
 - For negatives: single words → BROAD, 2-word phrases → PHRASE, 3+ words → EXACT. For keywords: match defaults to EXACT
 - Include ALL changes in ONE block — never write multiple blocks
 - If you skip the action block, the user cannot confirm and the changes won't happen
