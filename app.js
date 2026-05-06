@@ -1748,7 +1748,7 @@ async function processQuestion(question, account, userId, channelId, event, say)
         // Store pending action and post review buttons if action was proposed
         const threadTs = event.thread_ts || event.ts;
         if (action && (campaigns.length > 0 || adGroups.length > 0)) {
-            storePendingAction(threadTs, { action, accountId: account.id, accountName: account.name });
+            storePendingAction(threadTs, { action, accountId: account.id, accountName: account.name, campaigns });
             await say({ text: answer, thread_ts: threadTs });
             await say({
                 text: "Want to add these keywords to Google Ads?",
@@ -2127,7 +2127,7 @@ slack.action("review_keywords", async ({ action, ack, body, client }) => {
         });
         return;
     }
-    const enabledCampaigns = await listCampaigns(pending.accountId);
+    const enabledCampaigns = pending.campaigns || await listCampaigns(pending.accountId);
     const blocks = buildKeywordReviewModal(pending.accountName, pending.keywordIndex, enabledCampaigns);
     await client.views.open({
         trigger_id: body.trigger_id,
@@ -2160,7 +2160,7 @@ slack.view("keyword_review_modal", async ({ ack, view, client }) => {
     if (!pending) return;
 
     const kwIndex = pending.keywordIndex;
-    const enabledCampaigns = await listCampaigns(pending.accountId);
+    const enabledCampaigns = pending.campaigns || await listCampaigns(pending.accountId);
 
     const negCampaignMap = {};
     const adGroupMap = {};
